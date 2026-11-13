@@ -154,6 +154,9 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 #gIn.chat-open{border-color:var(--primary);box-shadow:0 0 0 3px var(--badge-bg)}
 .err-line{color:#c25a00!important;font-weight:bold}
 .draft-bar{background:#fffaf0;border-color:#ffe3a3}
+.feed .ans{color:var(--text);font-weight:600}
+.feed .ans-hidden{color:var(--muted);font-weight:normal}
+.feed .pts{color:var(--primary-hover)}
 /* 모션 */
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes popIn{0%{opacity:0;transform:scale(.88);filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{opacity:1;transform:none;filter:none}}
@@ -429,7 +432,7 @@ if (configured) {
 
 const GAME_MODES = {
   speed: { label: "⚡ 빨리 맞히기", desc: "가장 먼저 맞힌 한 명이 1점을 얻고 바로 다음 곡으로 넘어가요" },
-  hint: { label: "🎯 다 같이 맞히기", desc: "힌트 전에 맞히면 3점, 가수 힌트 뒤 2점, 초성 힌트 뒤 1점. 대신 여러 명이 맞힐 수 있고 시간이 끝나면 넘어가요" }
+  hint: { label: "🎯 다 같이 맞히기", desc: "힌트 전에 맞히면 3점, 첫 번째 힌트 뒤 2점, 두 번째 힌트 뒤 1점. 대신 여러 명이 맞힐 수 있고 시간이 끝나면 넘어가요" }
 };
 
 // 방 만들기 전에 게임 방식 고르기
@@ -760,15 +763,13 @@ async function viewList(pid) {
       <div class="row" style="margin-top:18px"><button class="btn" id="save">추가하기</button><button class="btn-secondary" id="cancel" hidden>취소</button></div>
     </div>
     <details class="panel" id="setPanel" open>
-      <summary>문제 설정 (이름 · 장르 · 힌트 이름 · 구간 · 비밀번호)</summary>
+      <summary>문제 설정 (이름 · 장르 · 구간 · 비밀번호)</summary>
       <label class="field">문제 이름</label>
       <div class="row nowrap"><input type="text" id="rename" class="grow" maxlength="40"><button class="btn-secondary" id="renameBtn">변경</button></div>
       <label class="field">장르</label>
       <div class="row nowrap"><input type="text" id="regenre" class="grow" maxlength="12" list="genres2"><button class="btn-secondary" id="regenreBtn">변경</button></div>
       ${genreDatalist("genres2")}
-      <label class="field">첫 번째 힌트 이름 (기본: 가수)</label>
-      <div class="row nowrap"><input type="text" id="rehint" class="grow" maxlength="12" placeholder="예: 가수, 챔피언 포지션, 출시 연도"><button class="btn-secondary" id="rehintBtn">변경</button></div>
-      <p class="hint">노래가 아닌 문제(대사, 효과음 등)라면 '가수' 칸에 넣은 내용을 이 이름으로 힌트에 보여 줘요.</p>
+      <p class="hint">첫 번째 힌트로는 곡마다 넣은 '가수' 칸 내용이, 두 번째 힌트로는 정답의 초성이 나와요.</p>
       <label class="field">구간 한 번에 정하기</label>
       <div class="row">
         <span class="hint" style="margin:0">모든 곡을 시작 지점부터</span>
@@ -820,8 +821,6 @@ async function viewList(pid) {
     const rn = $("#rename"), rg = $("#regenre");
     if (rn && document.activeElement !== rn) rn.value = meta.name;
     if (rg && document.activeElement !== rg) rg.value = meta.genre || "";
-    const rh = $("#rehint");
-    if (rh && document.activeElement !== rh) rh.value = meta.hintLabel || "";
   }));
 
   $("#playBtn").onclick = async () => {
@@ -1077,10 +1076,6 @@ async function viewList(pid) {
     if (!confirm("목록에서 내리고 다시 작성 중으로 바꿀까요? 다른 사람들 목록에서도 안 보이게 돼요.")) return;
     await update(metaRef, { draft: true, updatedAt: serverTimestamp() });
     toast("작성 중으로 바꿨어요");
-  };
-  $("#rehintBtn").onclick = async () => {
-    await update(metaRef, { hintLabel: $("#rehint").value.trim() || null, updatedAt: serverTimestamp() });
-    toast("힌트 이름을 바꿨어요");
   };
   $("#bulkSegBtn").onclick = async () => {
     const len = parseFloat($("#bulkLen").value);
@@ -1453,6 +1448,7 @@ async function viewRoom(code) {
     renderHeader();
     renderPlayers();
     renderFeed();
+    fillAnswers();
     renderStage();
     renderControls();
     handlePlayback();
@@ -1468,7 +1464,7 @@ async function viewRoom(code) {
 
   const isHost = () => room && room.host === uid;
   const isHintMode = () => (room?.settings?.mode || "speed") === "hint";
-  // 힌트 점수: 힌트 전 3점, 가수 힌트 뒤 2점, 초성 힌트 뒤 1점
+  // 다 같이 맞히기: 힌트 전 3점, 첫 번째 힌트 뒤 2점, 두 번째 힌트 뒤 1점
   const pointsAt = el => { const [h1, h2] = hintAt(); return el < h1 ? 3 : el < h2 ? 2 : 1; };
   const myName = () => getName() || "익명";
   const onlineIds = () => Object.entries(room.players || {}).filter(([, p]) => p.online).map(([id]) => id);
@@ -1605,11 +1601,11 @@ async function viewRoom(code) {
     const el = $("#feed");
     const line = ([k, f], anim) => {
       const cls = (f.t === "ok" ? "ok" : f.t === "sys" ? "sys" : "") + (anim ? " fade-in" : "");
-      const body = f.t === "ok" ? `🎉 ${esc(f.name)}님 정답!${f.p ? ` (+${f.p}점)` : ""}` : f.t === "sys" ? esc(f.text) : `<b>${esc(f.name)}</b> ${esc(f.text)}`;
+      const body = f.t === "ok" ? `🎉 ${esc(f.name)}님 정답!${f.a ? ` <span class="ans" data-i="${f.i ?? ""}" data-a="${esc(f.a)}"></span>` : ""}${f.p ? ` <span class="pts">+${f.p}점</span>` : ""}` : f.t === "sys" ? esc(f.text) : `<b>${esc(f.name)}</b> ${esc(f.text)}`;
       return `<div class="${cls}" data-k="${esc(k)}">${body}</div>`;
     };
     if (!items.length) {
-      el.innerHTML = `<div class="sys">${(room.settings?.mode || "speed") === "hint" ? "힌트 전에 맞히면 3점, 가수 힌트 뒤 2점, 초성 힌트 뒤 1점이에요." : "정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요."}</div>`;
+      el.innerHTML = `<div class="sys">${(room.settings?.mode || "speed") === "hint" ? "힌트 전에 맞히면 3점, 첫 번째 힌트 뒤 2점, 두 번째 힌트 뒤 1점이에요." : "정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요."}</div>`;
       shownFeed = new Set();
       return;
     }
@@ -1624,7 +1620,17 @@ async function viewRoom(code) {
       items.filter(([k]) => !shownFeed.has(k)).forEach(it => el.insertAdjacentHTML("beforeend", line(it, true)));
     }
     shownFeed = new Set(keys);
+    fillAnswers();
     el.scrollTo({ top: el.scrollHeight, behavior: continuous ? "smooth" : "auto" });
+  }
+  // 정답자가 친 글자 보여 주기. 다 같이 맞히기에서 그 곡이 아직 진행 중이면 다른 사람에게 스포가 되므로 정답 공개 때까지 가림
+  function fillAnswers() {
+    const st = room?.state || {};
+    const hide = i => isHintMode() && st.phase === "playing" && String(st.index) === i;
+    document.querySelectorAll("#feed .ans").forEach(sp => {
+      const txt = hide(sp.dataset.i) ? "(정답 공개 때 보여요)" : `(${sp.dataset.a})`;
+      if (sp.textContent !== txt) { sp.textContent = txt; sp.classList.toggle("ans-hidden", hide(sp.dataset.i)); }
+    });
   }
 
   let lastCover = null, lastStatus = null;
@@ -1656,18 +1662,17 @@ async function viewRoom(code) {
       const t = now(), clip = clipMs(), el = t - st.startAt;
       const step = `<span class="step">${st.index + 1} / ${total}</span>`;
       if (el < 0) {
-        setStage(`<div class="cv-sub">${st.index + 1}번째 곡</div><div class="big">${Math.ceil(-el / 1000)}</div>`,
+        setStage(`<div class="cv-sub">${st.index + 1}번째</div><div class="big">${Math.ceil(-el / 1000)}</div>`,
           `${step}<div>곧 시작해요</div>`);
         return;
       }
       const left = Number.isFinite(clip) ? Math.max(0, Math.ceil((clip - el) / 1000)) : fmtTime(el / 1000);
       const hints = [];
-      const h1 = playlists[s.playlistId]?.hintLabel || "가수";
       const [t1, t2] = hintAt();
-      if (el >= t1 && song.artist) hints.push(`${h1 === "가수" ? "🎤" : "💡"} ${esc(h1)} 힌트: <b>${esc(h1 === "가수" ? artistLabel(song.artist) : song.artist)}</b>`);
-      if (el >= t2) hints.push(`🔤 초성 힌트: <b>${esc(initialHint(song))}</b>`);
-      const next = el < t1 ? `${Math.ceil((t1 - el) / 1000)}초 뒤 ${h1} 힌트`
-        : el < t2 ? `${Math.ceil((t2 - el) / 1000)}초 뒤 초성 힌트`
+      if (el >= t1 && song.artist) hints.push(`💡 첫 번째 힌트: <b>${esc(artistLabel(song.artist))}</b>`);
+      if (el >= t2) hints.push(`💡 두 번째 힌트: <b>${esc(initialHint(song))}</b>`);
+      const next = el < t1 ? `${Math.ceil((t1 - el) / 1000)}초 뒤 첫 번째 힌트`
+        : el < t2 ? `${Math.ceil((t2 - el) / 1000)}초 뒤 두 번째 힌트`
         : isUnlimited() ? "시간 제한 없음 · 스킵 투표로 넘어가요" : "";
       setStage(`<div class="eq"><span></span><span></span><span></span><span></span><span></span></div><div class="big" style="font-size:40px">${left}</div>`,
         `${step}
@@ -1759,7 +1764,7 @@ async function viewRoom(code) {
           ${s.clipLen === 0 ? `<div style="grid-column:1/-1"><label class="field">무제한일 때 힌트 시간</label>
             <div class="row">
               <span class="hint" style="margin:0">첫 번째 힌트</span><input id="setH1" type="number" min="1" step="1" value="${hintSecs()[0]}" style="width:80px"><span class="hint" style="margin:0">초 뒤,</span>
-              <span class="hint" style="margin:0">초성 힌트</span><input id="setH2" type="number" min="1" step="1" value="${hintSecs()[1]}" style="width:80px"><span class="hint" style="margin:0">초 뒤</span>
+              <span class="hint" style="margin:0">두 번째 힌트</span><input id="setH2" type="number" min="1" step="1" value="${hintSecs()[1]}" style="width:80px"><span class="hint" style="margin:0">초 뒤</span>
             </div></div>` : ""}
           <div style="grid-column:1/-1"><label class="field">게임 방식</label><select id="setGame">${Object.entries(GAME_MODES).map(([k, v]) => `<option value="${k}" ${k === (s.mode || "speed") ? "selected" : ""}>${v.label} — ${v.desc}</option>`).join("")}</select></div>
           <div style="grid-column:1/-1"><label class="field">재생 구간</label><select id="setMode">${Object.entries(MODE_LABEL).map(([k, v]) => `<option value="${k}" ${k === (s.startMode || "auto") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
@@ -1777,7 +1782,7 @@ async function viewRoom(code) {
       const saveHints = () => {
         const h1 = Math.max(1, parseInt($("#setH1").value) || 15);
         let h2 = Math.max(1, parseInt($("#setH2").value) || 30);
-        if (h2 < h1) { h2 = h1; toast("초성 힌트는 첫 번째 힌트보다 늦게 나와요"); }
+        if (h2 < h1) { h2 = h1; toast("두 번째 힌트는 첫 번째 힌트보다 늦게 나와요"); }
         update(ref(db, base + "/settings"), { hint1: h1, hint2: h2 });
       };
       if ($("#setH1")) { $("#setH1").onchange = saveHints; $("#setH2").onchange = saveHints; }
@@ -1866,7 +1871,7 @@ async function viewRoom(code) {
       });
       if (res.committed) {
         await runTransaction(ref(db, `${base}/players/${uid}/score`), v => (v || 0) + pts);
-        await push(ref(db, base + "/feed"), { t: "ok", name: myName(), p: pts });
+        await push(ref(db, base + "/feed"), { t: "ok", name: myName(), p: pts, a: text.slice(0, 60), i: st.index });
       } else toast("시간이 끝났어요!");
       return;
     }
@@ -1883,7 +1888,7 @@ async function viewRoom(code) {
       });
       if (res.committed) {
         await runTransaction(ref(db, `${base}/players/${uid}/score`), v => (v || 0) + 1);
-        await push(ref(db, base + "/feed"), { t: "ok", name: myName() });
+        await push(ref(db, base + "/feed"), { t: "ok", name: myName(), a: text.slice(0, 60), i: st.index });
       } else {
         toast("아쉽게 한 발 늦었어요!");
       }
