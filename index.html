@@ -57,6 +57,7 @@ textarea{width:100%;resize:vertical}
 .field{display:block;font-size:.82rem;font-weight:bold;color:var(--muted);margin:14px 0 5px}
 .field:first-child{margin-top:0}
 .hint{font-size:.82rem;color:var(--muted);margin-top:6px}
+kbd{font:bold .75rem ui-monospace,Consolas,monospace;background:#fff;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px}
 code{font:.8rem ui-monospace,Consolas,monospace;background:var(--badge-bg);color:var(--badge-text);padding:1px 6px;border-radius:5px}
 details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .watch-btn,.btn{background:var(--primary);color:#fff;border:none;padding:9px 18px;border-radius:8px;font:inherit;font-size:.9rem;font-weight:bold;cursor:pointer;transition:background .2s ease;white-space:nowrap;display:inline-block}
@@ -133,6 +134,18 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .gate-box{background:#fff;border-radius:16px;padding:28px 24px;text-align:center;max-width:340px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.2)}
 .gate-box h3{color:var(--primary);margin:6px 0}
 
+/* 모션 */
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes popIn{0%{opacity:0;transform:scale(.88);filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{opacity:1;transform:none;filter:none}}
+.fade-in{animation:fadeUp .4s ease both}
+.reveal-anim > *{animation:fadeUp .6s ease both}
+.reveal-anim > .answer{animation:popIn .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:.15s}
+.reveal-anim > :nth-child(3){animation-delay:.45s}
+.reveal-anim > :nth-child(4){animation-delay:.7s}
+.reveal-anim > :nth-child(5){animation-delay:.95s}
+.cover{transition:opacity .6s ease}
+.cover.hide{display:flex!important;opacity:0;pointer-events:none}
+@media (prefers-reduced-motion: reduce){ .fade-in,.reveal-anim > *{animation:none} .cover{transition:none} }
 /* 편집 화면 */
 .song{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0f0}
 .song:first-child{border-top:0}
@@ -280,6 +293,32 @@ function genreColor(g) {
   return `linear-gradient(135deg, hsl(${hue} 80% 62%), hsl(${(hue + 25) % 360} 75% 74%))`;
 }
 // ---------- UTILS END ----------
+
+// 가수 이름 한국어 발음 (힌트에 같이 보여 줌). 필요하면 여기에 추가하세요.
+const ARTIST_KO = {
+  "Marihiko Hara": "하라 마리히코", "Trooper Salute": "트루퍼 설루트", "カフェインジャンキー": "카페인 정키", "NICHIMEZO": "니치메조",
+  "ずっと真夜中でいいのに。": "즛토마요", "ヨルシカ": "요루시카", "yutori": "유토리", "女王蜂": "조오바치", "Mrs. GREEN APPLE": "미세스 그린 애플",
+  "ロクデナシ": "로쿠데나시", "米津玄師": "요네즈 켄시", "HACHI": "하치", "ninzin": "닌진", "Ado": "아도", "yama": "야마", "なきそ": "나키소",
+  "サカナクション": "사카나쿠션", "ルシノ": "루시노", "25時、ナイトコードで。": "니고 (25시, 나이트 코드에서.)", "=LOVE": "이코르러브",
+  "トゲナシトゲアリ": "토게나시 토게아리", "Official髭男dism": "오피셜 히게단디즘 (히게단)", "Leina": "레이나", "Penthouse": "펜트하우스",
+  "緑黄色社会": "료쿠오쇼쿠 샤카이 (녹황색사회)", "ano": "아노", "MASS OF THE FERMENTING DREGS": "매스 오브 더 퍼멘팅 드렉스",
+  "宇多田ヒカル": "우타다 히카루", "PompadollS": "폼파돌스", "HIBANA": "히바나", "DECO*27": "데코니나", "TOKOTOKO(西沢さんP)": "토코토코 (니시자와상P)",
+  "さユり": "사유리", "susumu.": "스스무", "Mr.FanTastiC": "미스터 판타스틱", "ファントムシータ": "팬텀 시타", "TRUE": "트루",
+  "SILENT SIREN": "사일런트 사이렌", "fhána": "파나", "MEGATERA･ZERO": "메가테라 제로", "こはならむ": "코하나라무", "藤井風": "후지이 카제",
+  "Billyrrom": "빌리롬", "indigo la End": "인디고 라 엔드", "NICO Touches the Walls": "니코 터치스 더 월즈", "MAISONdes": "메종데",
+  "超ときめき♡宣伝部": "초 토키메키 센덴부", "LiSA": "리사", "back number": "백넘버", "m-flo": "엠플로", "Cody・Lee(李)": "코디 리",
+  "capo2": "카포투", "鈴木このみ": "스즈키 코노미", "9Lana": "쿠라나", "菅田将暉": "스다 마사키", "AKINO from bless4": "아키노",
+  "紫 今": "무라사키 이마", "優里": "유우리", "YOASOBI": "요아소비", "sumika": "스미카", "muque": "무케", "星街すいせい": "호시마치 스이세이",
+  "Hump Back": "험프 백", "スピラ・スピカ": "스피라 스피카", "椎名林檎": "시이나 링고", "NELKE": "넬케", "SIRUP": "시럽", "Eve": "이브",
+  "john(TOOBOE)": "존 (투보에)", "ウォルピス社": "월피스샤", "RADWIMPS": "래드윔프스", "King Gnu": "킹 누", "フレデリック": "프레데릭",
+  "和ぬか": "와누카", "八木海莉": "야기 카이리", "友成空": "토모나리 소라", "ツユ": "츠유", "MONKEY MAJIK": "몽키 매직", "Vaundy": "바운디",
+  "AliA": "알리아"
+};
+function artistLabel(a) {
+  if (!a) return "";
+  const ko = ARTIST_KO[a] || ARTIST_KO[String(a).replace(/ - Topic$/, "")];
+  return ko ? `${a} (${ko})` : a;
+}
 
 const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
@@ -1227,18 +1266,35 @@ async function viewRoom(code) {
   }
 
   let lastFeedKey = null;
+  let shownFeed = new Set();
   function renderFeed() {
     const items = Object.entries(room.feed || {}).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-60);
     const key = items.length ? items[items.length - 1][0] + items.length : "";
     if (key === lastFeedKey) return;
     lastFeedKey = key;
     const el = $("#feed");
-    el.innerHTML = items.length ? items.map(([, f]) => {
-      if (f.t === "ok") return `<div class="ok">🎉 ${esc(f.name)}님 정답!</div>`;
-      if (f.t === "sys") return `<div class="sys">${esc(f.text)}</div>`;
-      return `<div><b>${esc(f.name)}</b> ${esc(f.text)}</div>`;
-    }).join("") : `<div class="sys">정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요.</div>`;
-    el.scrollTop = el.scrollHeight;
+    const line = ([k, f], anim) => {
+      const cls = (f.t === "ok" ? "ok" : f.t === "sys" ? "sys" : "") + (anim ? " fade-in" : "");
+      const body = f.t === "ok" ? `🎉 ${esc(f.name)}님 정답!` : f.t === "sys" ? esc(f.text) : `<b>${esc(f.name)}</b> ${esc(f.text)}`;
+      return `<div class="${cls}" data-k="${esc(k)}">${body}</div>`;
+    };
+    if (!items.length) {
+      el.innerHTML = `<div class="sys">정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요.</div>`;
+      shownFeed = new Set();
+      return;
+    }
+    // 이미 보이는 줄은 그대로 두고 새 줄만 붙여서 새 줄만 스르륵 나타나게
+    const keys = items.map(([k]) => k);
+    const continuous = shownFeed.size && keys.some(k => shownFeed.has(k));
+    if (!continuous) {
+      el.innerHTML = items.map(it => line(it, shownFeed.size === 0 && lastFeedKey !== null)).join("");
+    } else {
+      el.querySelectorAll("[data-k]").forEach(d => { if (!keys.includes(d.dataset.k)) d.remove(); });
+      el.querySelector(":scope > :not([data-k])")?.remove();
+      items.filter(([k]) => !shownFeed.has(k)).forEach(it => el.insertAdjacentHTML("beforeend", line(it, true)));
+    }
+    shownFeed = new Set(keys);
+    el.scrollTo({ top: el.scrollHeight, behavior: continuous ? "smooth" : "auto" });
   }
 
   let lastCover = null, lastStatus = null;
@@ -1276,32 +1332,44 @@ async function viewRoom(code) {
       }
       const left = Math.max(0, Math.ceil((clip - el) / 1000));
       const hints = [];
-      if (el >= clip / 3 && song.artist) hints.push(`🎤 가수 힌트: <b>${esc(song.artist)}</b>`);
+      if (el >= clip / 3 && song.artist) hints.push(`🎤 가수 힌트: <b>${esc(artistLabel(song.artist))}</b>`);
       if (el >= (clip * 2) / 3) hints.push(`🔤 초성 힌트: <b>${esc(initialHint(song))}</b>`);
       const next = el < clip / 3 ? `${Math.ceil((clip / 3 - el) / 1000)}초 뒤 가수 힌트`
         : el < (clip * 2) / 3 ? `${Math.ceil(((clip * 2) / 3 - el) / 1000)}초 뒤 초성 힌트` : "";
       setStage(`<div class="eq"><span></span><span></span><span></span><span></span><span></span></div><div class="big" style="font-size:40px">${left}</div>`,
         `${step}
-         <div class="timebar"><span style="width:${Math.min(100, (el / clip) * 100)}%"></span></div>
-         ${hints.length ? hints.map(h => `<div class="hint-line">${h}</div>`).join("") : `<div><b>듣는 중!</b> 정답을 입력하세요</div>`}
-         ${next ? `<div class="orig">${next}</div>` : ""}`);
+         <div class="timebar"><span id="tbar"></span></div>
+         <div id="hintBox">${hints.length ? "" : `<div><b>듣는 중!</b> 정답을 입력하세요</div>`}</div>
+         <div class="orig" id="nextHint"></div>`);
+      const box = $("#hintBox");
+      hints.forEach((h, i) => {
+        if (!box.querySelector(`[data-h="${i}"]`)) {
+          if (i === 0) box.innerHTML = "";
+          box.insertAdjacentHTML("beforeend", `<div class="hint-line fade-in" data-h="${i}">${h}</div>`);
+        }
+      });
+      $("#tbar").style.width = Math.min(100, (el / clip) * 100) + "%";
+      $("#nextHint").textContent = next;
     } else if (st.phase === "reveal" && song) {
-      const sub = [song.orig && norm(song.orig) !== norm(song.answer) ? song.orig : "", song.artist].filter(Boolean).join(" · ");
+      const sub = [song.orig && norm(song.orig) !== norm(song.answer) ? song.orig : "", artistLabel(song.artist)].filter(Boolean).join(" · ");
       const wait = Math.max(0, Math.ceil(((st.revealAt || 0) + REVEAL_MS - now()) / 1000));
       const last = st.index + 1 >= total;
       setStage("",
-        `<span class="step">${st.index + 1} / ${total} 정답</span>
+        `<div class="reveal-anim">
+         <span class="step">${st.index + 1} / ${total} 정답</span>
          <div class="answer">${esc(song.answer)}</div>
          ${sub ? `<div class="orig">${esc(sub)}</div>` : ""}
          ${st.winnerName ? `<div class="win">🎉 ${esc(st.winnerName)}님이 맞혔어요!</div>` : `<div class="orig" style="margin-top:4px">아무도 못 맞혔어요</div>`}
-         <div class="orig" style="margin-top:6px">${wait}초 뒤 ${last ? "결과 발표" : "다음 곡"}</div>`,
+         <div class="orig" style="margin-top:6px" id="revealWait"></div>
+         </div>`,
         true);
+      $("#revealWait").textContent = `${wait}초 뒤 ${last ? "결과 발표" : "다음 곡"}`;
     } else if (st.phase === "end") {
       const ranks = sortedPlayers();
       const top = ranks[0]?.[1];
       setStage(`<div class="big">🏆</div><div class="cv-sub">${top ? esc(top.name) + "님 우승!" : "게임 끝!"}</div>`,
-        `<span class="step">최종 결과</span><div style="margin-top:6px">${ranks.map(([, p], i) =>
-          `<div>${["🥇", "🥈", "🥉"][i] || i + 1 + "."} ${esc(p.name)} · <b>${p.score || 0}점</b></div>`).join("")}</div>`);
+        `<div class="reveal-anim"><span class="step">최종 결과</span><div style="margin-top:6px">${ranks.map(([, p], i) =>
+          `<div>${["🥇", "🥈", "🥉"][i] || i + 1 + "."} ${esc(p.name)} · <b>${p.score || 0}점</b></div>`).join("")}</div></div>`);
     }
   }
 
@@ -1319,6 +1387,7 @@ async function viewRoom(code) {
     if (st.phase === "playing" || st.phase === "reveal") {
       el.innerHTML = `<div class="ctl">
         <button class="${mine ? "btn" : "btn-secondary"}" data-act="skip">⏭ ${mine ? "스킵 투표 취소" : st.phase === "playing" ? "스킵 투표 (정답 보기)" : "스킵 투표 (다음 곡)"} · ${votes}/${need}</button>
+        <span class="hint" style="align-self:center">채팅칸 밖에서 <kbd>K</kbd> 로도 투표 · 채팅칸에서는 <kbd>Esc</kbd> 후 <kbd>K</kbd></span>
       </div>`;
       return;
     }
@@ -1428,9 +1497,21 @@ async function viewRoom(code) {
       await push(ref(db, base + "/feed"), { t: "chat", name: myName(), text: text.slice(0, 60) });
     }
   }
+  // K 키로 스킵 투표 (입력칸에 글자를 치는 중일 때는 동작하지 않음). 한글 자판(ㅏ)이어도 같은 키로 인식
+  const onKey = e => {
+    if (e.code !== "KeyK" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+    const ph = room?.state?.phase;
+    if (ph !== "playing" && ph !== "reveal") return;
+    e.preventDefault();
+    skipVote().catch(console.error);
+  };
+  document.addEventListener("keydown", onKey);
+  onCleanup(() => document.removeEventListener("keydown", onKey));
   $("#gSend").onclick = send;
   $("#gIn").addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
+    if (e.key === "Escape") e.target.blur();   // Esc로 채팅칸에서 빠져나오면 바로 K로 스킵 가능
   });
 }
 
