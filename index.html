@@ -1227,7 +1227,7 @@ async function viewRoom(code) {
         <div id="controls"></div>
         <div class="panel">
           <div class="row nowrap">
-            <input type="text" id="gIn" class="grow" placeholder="Enter를 눌러 채팅 · K로 스킵 투표" maxlength="60" autocomplete="off">
+            <input type="text" id="gIn" class="grow" placeholder="Enter나 클릭으로 채팅 · K로 스킵 투표" maxlength="60" autocomplete="off">
             <button class="btn" id="gSend">보내기</button>
           </div>
           <div id="feed" class="feed"></div>
@@ -1735,7 +1735,7 @@ async function viewRoom(code) {
       el.innerHTML = `<div class="ctl">
         <button class="${mine ? "btn" : "btn-secondary"}" data-act="skip">⏭ ${mine ? "스킵 투표 취소" : st.phase === "playing" ? "스킵 투표 (정답 보기)" : "스킵 투표 (다음 곡)"} · ${votes}/${need}</button>
         ${host ? `<button class="btn-secondary" data-act="force">⏩ 방장 강제 스킵 <kbd>P</kbd></button>` : ""}
-        <span class="hint" style="align-self:center"><kbd>K</kbd> 로도 투표 · 채팅은 <kbd>Enter</kbd>로 열고 닫아요</span>
+        <span class="hint" style="align-self:center"><kbd>K</kbd> 로도 투표 · 채팅은 <kbd>Enter</kbd>나 클릭으로 열어요</span>
       </div>`;
       return;
     }
@@ -1895,7 +1895,7 @@ async function viewRoom(code) {
   // 채팅은 Enter로만 시작: Enter → 채팅 열림 → 입력 → Enter로 보내고 닫힘 (빈 칸에서 Enter나 Esc도 닫힘)
   // 채팅이 닫혀 있을 때 K = 스킵 투표. 휴대폰은 Enter 키가 없으니 채팅칸을 누르면 열림.
   const gIn = $("#gIn");
-  const PH_CLOSED = "Enter를 눌러 채팅 · K로 스킵 투표";
+  const PH_CLOSED = "Enter나 클릭으로 채팅 · K로 스킵 투표";
   const PH_OPEN = "정답이나 채팅을 입력하고 Enter";
   let chatOpen = false;
   const openChat = () => {
@@ -1945,12 +1945,8 @@ async function viewRoom(code) {
     }
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeChat(); }
   });
-  // 마우스로 채팅칸을 눌러도 열리지 않음(Enter로만). 터치(휴대폰)는 눌러서 열 수 있게
-  gIn.addEventListener("pointerdown", e => {
-    if (chatOpen) return;
-    if (e.pointerType === "mouse") { e.preventDefault(); toast("Enter를 누르면 채팅이 열려요"); }
-    else openChat();
-  });
+  // 채팅칸을 마우스나 손가락으로 눌러도 열림
+  gIn.addEventListener("pointerdown", () => { if (!chatOpen) openChat(); });
   gIn.addEventListener("blur", () => { if (chatOpen && !gIn.value) closeChat(); });
   $("#gSend").onclick = () => {
     if (!chatOpen) return openChat();
