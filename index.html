@@ -214,7 +214,7 @@ const firebaseConfig = {
 // ============================================================
 
 // 장르 칩·장르 입력칸에 기본으로 보여 줄 장르 (자유롭게 고쳐도 돼요)
-const DEFAULT_GENRES = ["종합", "여돌", "남돌", "JPOP", "발라드", "OST", "밴드", "팝송"];
+const DEFAULT_GENRES = ["종합", "여돌", "남돌", "JPOP", "발라드", "OST", "밴드", "팝송", "게임"];
 
 // ---------- UTILS START ----------
 function esc(s) {
@@ -313,7 +313,7 @@ function pickStart(song, mode, durationSec) {
 }
 
 // 장르 이름으로 표지 색 정하기 (같은 장르는 늘 같은 색)
-const GENRE_HUES = { "종합": 205, "여돌": 335, "남돌": 225, "JPOP": 5, "발라드": 175, "OST": 130, "밴드": 30, "팝송": 265 };
+const GENRE_HUES = { "종합": 205, "여돌": 335, "남돌": 225, "JPOP": 5, "발라드": 175, "OST": 130, "밴드": 30, "팝송": 265, "게임": 285 };
 function genreColor(g) {
   let hue = GENRE_HUES[g];
   if (hue == null) {
