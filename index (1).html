@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>노래 맞히기</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237b4fd6'/%3E%3Cpath d='M13 8v11.2a3.5 3.5 0 1 0 2 3.1V12.5l8-1.8v6.5a3.5 3.5 0 1 0 2 3.1V6z' fill='%23fff'/%3E%3C/svg%3E">
+<meta name="description" content="친구들과 실시간으로 노래를 맞히는 사이트">
+<style>
+:root{
+  --bg:#f7f5fb; --card:#fff; --text:#1d1a24; --muted:#6f6880; --line:#e6e1ef;
+  --accent:#7b4fd6; --on-accent:#fff; --accent-soft:#efe8fc; --ok:#1f8a5b; --danger:#d6336c;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#141218; --card:#1e1b24; --text:#ece8f3; --muted:#a29bb3; --line:#2f2a38;
+    --accent:#b597ff; --on-accent:#1a1030; --accent-soft:#2c2340; --ok:#4fd1a8; --danger:#ff6b9a; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+a{color:inherit;text-decoration:none}
+a.link{color:var(--accent)}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px 80px}
+.wrap.wide{max-width:1040px}
+header{padding:28px 0 8px}
+h1{margin:0;font-size:24px;letter-spacing:-.02em}
+h3{margin:0 0 10px;font-size:15px}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.back{display:inline-block;color:var(--muted);font-size:13px;margin-bottom:6px}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding:12px 0 10px;border-bottom:1px solid var(--line)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.row:first-child{margin-top:0}
+.nowrap{flex-wrap:nowrap}
+input[type=search],input[type=text],input[type=password],input[type=number],select,textarea{
+  font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-width:0}
+input[type=search],.grow{flex:1}
+.full{width:100%}
+textarea{width:100%;resize:vertical}
+input[type=range]{accent-color:var(--accent);width:100%}
+.chip{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);
+  border-radius:999px;padding:5px 11px;cursor:pointer;white-space:nowrap;display:inline-block}
+.chip[aria-pressed=true],.chip.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.chip.primary{font-weight:700}
+.chip.danger{color:var(--danger)}
+.chip:disabled{opacity:.5;cursor:default}
+.btn{font:inherit;font-weight:700;border:0;border-radius:10px;padding:10px 18px;background:var(--accent);color:var(--on-accent);cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:default}
+.chip:focus-visible,.btn:focus-visible,.lk:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.label{font-size:12px;color:var(--muted);margin-right:2px}
+.count{margin-left:auto;font-size:13px;color:var(--muted)}
+.month{margin:26px 0 8px;font-size:14px;font-weight:700;color:var(--accent)}
+.ev{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.box{padding:16px}
+.lr{display:flex;gap:8px;align-items:center}
+.lr .lk{flex:1;min-width:0}
+.lk{display:flex;gap:12px;align-items:center;border-radius:10px;padding:4px;margin:-4px;cursor:pointer}
+.lk:hover{background:var(--accent-soft)}
+.thumb{flex:none;width:120px;aspect-ratio:16/9;border-radius:8px;background:var(--line) center/cover no-repeat;position:relative}
+.thumb.gen{display:grid;place-items:center;color:#fff;font-weight:800;font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,.35);padding:0 6px;text-align:center;overflow:hidden}
+.tb{position:absolute;right:5px;bottom:4px;font-size:10px;font-weight:700;color:#fff;border-radius:4px;padding:1px 5px;line-height:1.4;background:rgba(0,0,0,.45);text-shadow:none}
+.lk-t{font-size:14px;word-break:break-word;min-width:0}
+.lk-t b{font-size:15px}
+.off-note{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.empty{text-align:center;color:var(--muted);padding:60px 0}
+.field{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+.field:first-child{margin-top:0}
+code{font:12px ui-monospace,Consolas,monospace;background:var(--accent-soft);padding:1px 5px;border-radius:5px}
+details summary{cursor:pointer}
+.code{font:800 18px ui-monospace,Consolas,monospace;letter-spacing:3px;color:var(--accent)}
+
+/* 방 화면 */
+.grid{display:grid;grid-template-columns:1fr 280px;gap:14px;align-items:start;margin-top:14px}
+@media (max-width:800px){ .grid{grid-template-columns:1fr} }
+.video-box{position:relative;aspect-ratio:16/9;background:#14101f;border-radius:14px;overflow:hidden;margin-bottom:10px}
+.video-box iframe,.video-box > div:first-child{position:absolute;inset:0;width:100%;height:100%}
+.cover{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#3a2470,#7b4fd6);color:#fff;text-align:center;padding:16px}
+.cover.hide{display:none}
+.cover .cv-sub{opacity:.85;font-size:14px}
+.big{font-size:64px;font-weight:800;line-height:1}
+.eq{display:flex;gap:7px;height:60px;align-items:flex-end}
+.eq span{width:10px;background:#fff;border-radius:4px;animation:eq .9s infinite ease-in-out}
+.eq span:nth-child(2){animation-delay:.15s}.eq span:nth-child(3){animation-delay:.3s}
+.eq span:nth-child(4){animation-delay:.45s}.eq span:nth-child(5){animation-delay:.6s}
+@keyframes eq{0%,100%{height:12px}50%{height:60px}}
+.status{text-align:center}
+.answer{font-size:24px;font-weight:800;margin:4px 0}
+.win{color:var(--ok);font-weight:700}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:10px}
+.settings{display:grid;grid-template-columns:1fr 100px 100px;gap:10px;align-items:end}
+.settings .field{margin-top:0}
+.settings select,.settings input{width:100%}
+@media (max-width:560px){ .settings{grid-template-columns:1fr 1fr} .settings > div:first-child{grid-column:1/-1} }
+.players{list-style:none;margin:0;padding:0}
+.players li{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.players li:first-child{border-top:0}
+.players .rk{width:20px;color:var(--muted);font-weight:700;text-align:center;font-size:13px}
+.players .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.players .sc{font-weight:800;color:var(--accent)}
+.players li.off{opacity:.4}
+.feed{max-height:240px;overflow-y:auto;font-size:14px;margin-top:10px}
+.feed div{padding:2px 0;word-break:break-all}
+.feed .ok{color:var(--ok);font-weight:700}
+.feed .sys{color:var(--muted)}
+
+/* 편집 화면 */
+.song{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.song:first-child{border-top:0}
+.song .num{width:22px;color:var(--muted);text-align:center;flex:none;font-size:13px}
+.song .thumb{width:104px}
+.song .grow{min-width:0}
+
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:999px;
+  opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:90vw;text-align:center;font-size:14px}
+#toast.show{opacity:1}
+@media (max-width:560px){ .thumb{width:104px} #nick{width:96px!important} #code{width:72px!important} }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+
+<script>
+  window.__ytReady = new Promise(function (resolve) { window.onYouTubeIframeAPIReady = resolve; });
+</script>
+<script src="https://www.youtube.com/iframe_api" async></script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getDatabase, ref, get, set, update, push, onValue, runTransaction, onDisconnect, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// ============================================================
+//  ▼▼▼ Firebase 설정: 콘솔에서 복사한 값을 여기에 붙여 넣으세요 ▼▼▼
+// ============================================================
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+// ============================================================
+
+// 장르 칩·장르 입력칸에 기본으로 보여 줄 장르 (자유롭게 고쳐도 돼요)
+const DEFAULT_GENRES = ["여돌", "남돌", "JPOP", "발라드", "OST", "밴드", "팝송"];
+
+// ---------- UTILS START ----------
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// 정답 비교용: 소문자로, 띄어쓰기·기호 제거
+function norm(s) {
+  return String(s ?? "").normalize("NFC").toLowerCase()
+    .replace(/[^0-9a-zㄱ-ㆎ가-힣぀-ヿ一-鿿]/g, "");
+}
+
+function isCorrect(text, song) {
+  const g = norm(text);
+  if (!g) return false;
+  const answers = [song.answer, ...String(song.alts || "").split(",")].map(norm).filter(Boolean);
+  return answers.includes(g);
+}
+
+// "75", "1:15", "1m15s" → 초
+function parseTime(t) {
+  t = String(t ?? "").trim();
+  if (!t) return 0;
+  if (/^\d+(\.\d+)?s?$/.test(t)) return parseFloat(t);
+  const hms = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (hms && (hms[1] || hms[2] || hms[3])) return (+hms[1] || 0) * 3600 + (+hms[2] || 0) * 60 + (+hms[3] || 0);
+  const parts = t.split(":").map(Number);
+  if (parts.some(n => isNaN(n))) return NaN;
+  return parts.reduce((a, b) => a * 60 + b, 0);
+}
+
+function fmtTime(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+
+function parseYouTube(input) {
+  input = String(input ?? "").trim();
+  if (!input) return null;
+  if (/^[\w-]{11}$/.test(input)) return { id: input, t: null };
+  let u;
+  try { u = new URL(/^https?:\/\//.test(input) ? input : "https://" + input); } catch { return null; }
+  let id = null;
+  if (u.hostname.endsWith("youtu.be")) id = u.pathname.slice(1, 12);
+  else if (u.searchParams.get("v")) id = u.searchParams.get("v");
+  else {
+    const m = u.pathname.match(/\/(shorts|embed|live|v)\/([\w-]{11})/);
+    if (m) id = m[2];
+  }
+  if (!id || !/^[\w-]{11}$/.test(id)) return null;
+  const t = u.searchParams.get("t") || u.searchParams.get("start");
+  return { id, t: t ? parseTime(t) : null };
+}
+
+// 영상 제목에서 곡 제목 추측: 'The Chase' 처럼 따옴표 안을 우선 사용
+function guessAnswer(title) {
+  if (!title) return "";
+  const q = title.match(/['‘’"“”「『]([^'‘’"“”「」『』]{1,60})['‘’"“”」』]/);
+  if (q) return q[1].trim();
+  let s = title.replace(/[\[(【][^\])】]*[\])】]/g, " ");
+  if (s.includes(" - ")) s = s.split(" - ").slice(1).join(" - ");
+  s = s.replace(/\b(official|music video|m\/v|mv|audio|lyrics?|lyric video|performance video|special video|visualizer)\b/gi, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function cleanAlts(s) {
+  return String(s ?? "").split(",").map(x => x.trim()).filter(Boolean).join(", ");
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// 장르 이름으로 표지 색 정하기 (같은 장르는 늘 같은 색)
+const GENRE_HUES = { "여돌": 335, "남돌": 215, "JPOP": 5, "발라드": 175, "OST": 130, "밴드": 30, "팝송": 255 };
+function genreColor(g) {
+  if (GENRE_HUES[g] != null) {
+    const hue = GENRE_HUES[g];
+    return `linear-gradient(135deg, hsl(${hue} 65% 58%), hsl(${(hue + 30) % 360} 60% 42%))`;
+  }
+  let h = 0;
+  for (const ch of String(g || "기타")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  const hue = h % 360;
+  return `linear-gradient(135deg, hsl(${hue} 65% 58%), hsl(${(hue + 40) % 360} 60% 42%))`;
+}
+// ---------- UTILS END ----------
+
+const $ = (s, r = document) => r.querySelector(s);
+const app = $("#app");
+const rid = () => Math.random().toString(36).slice(2, 10);
+
+let toastTimer;
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+const uid = localStorage.getItem("uid") || (() => {
+  const v = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 16);
+  localStorage.setItem("uid", v);
+  return v;
+})();
+const getName = () => (localStorage.getItem("nickname") || "").trim();
+const setName = n => localStorage.setItem("nickname", String(n).trim().slice(0, 12));
+
+async function hashPw(pid, pw) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pid + ":" + pw));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function fetchTitle(videoId) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch("https://noembed.com/embed?url=" + encodeURIComponent("https://www.youtube.com/watch?v=" + videoId), { signal: ctrl.signal });
+    clearTimeout(timer);
+    const j = await r.json();
+    return j.title || "";
+  } catch { return ""; }
+}
+
+function coverHTML(m) {
+  const label = m.genre || "🎵";
+  return `<span class="thumb gen" style="background:${genreColor(m.genre)}">${esc(label)}<span class="tb">${m.count || 0}곡</span></span>`;
+}
+
+// ---------- YouTube 플레이어 ----------
+async function createPlayer(elId, { controls = 0, onError } = {}) {
+  await window.__ytReady;
+  return new Promise(resolve => {
+    const p = new YT.Player(elId, {
+      width: "100%", height: "100%",
+      playerVars: { controls, disablekb: controls ? 0 : 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3, modestbranding: 1 },
+      events: { onReady: () => resolve(p), onError: e => onError && onError(e) }
+    });
+  });
+}
+const EMBED_BLOCKED = "이 영상은 다른 사이트에서 재생할 수 없게 막혀 있어요";
+
+// ---------- Firebase ----------
+let db = null;
+let serverOffset = 0;
+const now = () => Date.now() + serverOffset;
+const configured = !!(firebaseConfig.apiKey && firebaseConfig.databaseURL);
+if (configured) {
+  db = getDatabase(initializeApp(firebaseConfig));
+  onValue(ref(db, ".info/serverTimeOffset"), s => { serverOffset = s.val() || 0; });
+}
+
+async function createRoom(playlistId, count) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = null;
+  for (let i = 0; i < 10 && !code; i++) {
+    const c = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    if (!(await get(ref(db, "rooms/" + c))).exists()) code = c;
+  }
+  if (!code) throw new Error("방 코드를 만들지 못했어요");
+  await set(ref(db, "rooms/" + code), {
+    createdAt: serverTimestamp(),
+    host: uid,
+    settings: { playlistId: playlistId || "", count: Math.max(1, Math.min(10, count || 10)), clipLen: 15 },
+    state: { phase: "lobby" }
+  });
+  location.hash = "#/room/" + code;
+}
+
+// ---------- 라우터 ----------
+let cleanups = [];
+let viewId = 0;
+const onCleanup = fn => cleanups.push(fn);
+
+function route() {
+  cleanups.forEach(fn => { try { fn(); } catch {} });
+  cleanups = [];
+  viewId++;
+  window.scrollTo(0, 0);
+  if (!configured) return viewSetup();
+  const parts = (location.hash.slice(1) || "/").split("/").filter(Boolean);
+  if (parts[0] === "room" && parts[1]) return viewRoom(parts[1].toUpperCase());
+  if (parts[0] === "new") return viewNew();
+  if (parts[0] === "list" && parts[1]) return viewList(parts[1]);
+  viewHome();
+}
+window.addEventListener("hashchange", route);
+
+// ============================================================
+//  설정 안내
+// ============================================================
+function viewSetup() {
+  app.innerHTML = `
+  <div class="wrap">
+    <header><h1>노래 맞히기</h1></header>
+    <div class="ev box">
+      <h3>Firebase 설정이 필요해요</h3>
+      index.html 위쪽의 <code>firebaseConfig</code>에 Firebase 콘솔에서 복사한 값을 붙여 넣어 주세요.
+      <code>databaseURL</code>도 꼭 들어가 있어야 해요. 자세한 방법은 README를 봐 주세요.
+    </div>
+  </div>`;
+}
+
+// ============================================================
+//  첫 화면: 문제 목록
+// ============================================================
+function viewHome() {
+  const st = { q: "", genre: "", sort: "new" };
+  try { Object.assign(st, JSON.parse(localStorage.getItem("sq-filter") || "{}"), { q: "" }); } catch {}
+  const save = () => { try { localStorage.setItem("sq-filter", JSON.stringify({ genre: st.genre, sort: st.sort })); } catch {} };
+
+  app.innerHTML = `
+  <div class="wrap">
+    <header>
+      <h1>노래 맞히기</h1>
+      <div class="sub">문제를 누르면 그 장르로 방이 만들어져요 · 방 코드나 초대 링크로 친구들과 실시간으로 맞혀요</div>
+      <div class="row" style="margin-top:12px">
+        <span class="label">닉네임</span>
+        <input type="text" id="nick" maxlength="12" placeholder="닉네임" value="${esc(getName())}" style="width:130px">
+        <span class="label" style="margin-left:8px">방 코드</span>
+        <input type="text" id="code" maxlength="6" placeholder="K7PX" style="width:90px;text-transform:uppercase">
+        <button class="chip primary" id="join">입장</button>
+      </div>
+    </header>
+
+    <div class="controls">
+      <div class="row">
+        <input type="search" id="q" placeholder="문제 검색 (예: JPOP, 여돌, 2000년대)">
+        <button class="chip" id="sort"></button>
+        <a class="chip primary" href="#/new">+ 새 문제</a>
+      </div>
+      <div class="row" id="gRow"><span class="label">장르</span><span class="count" id="count"></span></div>
+    </div>
+
+    <main id="list"><div class="empty">불러오는 중…</div></main>
+  </div>`;
+
+  const requireName = () => {
+    if (getName()) return true;
+    toast("닉네임을 먼저 입력해 주세요");
+    $("#nick").focus();
+    return false;
+  };
+  $("#nick").addEventListener("input", e => setName(e.target.value));
+  const join = () => {
+    const c = $("#code").value.trim().toUpperCase();
+    if (!c) return toast("방 코드를 입력해 주세요");
+    if (requireName()) location.hash = "#/room/" + c;
+  };
+  $("#join").onclick = join;
+  $("#code").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) join(); });
+  $("#q").oninput = e => { st.q = e.target.value.trim().toLowerCase(); render(); };
+  $("#sort").onclick = () => { st.sort = st.sort === "new" ? "name" : "new"; render(); };
+
+  let lists = {};
+  onCleanup(onValue(ref(db, "playlistMeta"), s => { lists = s.val() || {}; render(); }));
+
+  function render() {
+    if (!$("#list")) return;
+    save();
+    $("#sort").textContent = st.sort === "new" ? "최근 수정순" : "이름순";
+
+    // 장르 칩: 기본 장르 + 실제로 쓰인 장르
+    const used = [...new Set(Object.values(lists).map(m => m.genre || "기타"))];
+    const genres = [...DEFAULT_GENRES.filter(g => used.includes(g)), ...used.filter(g => !DEFAULT_GENRES.includes(g) && g !== "기타").sort(), ...(used.includes("기타") ? ["기타"] : [])];
+    if (st.genre && !genres.includes(st.genre)) st.genre = "";
+    const gRow = $("#gRow");
+    gRow.querySelectorAll(".chip").forEach(b => b.remove());
+    [["", "전체"], ...genres.map(g => [g, g])].forEach(([k, label]) => {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = label;
+      b.setAttribute("aria-pressed", k === st.genre);
+      b.onclick = () => { st.genre = k; render(); };
+      gRow.insertBefore(b, $("#count"));
+    });
+
+    let arr = Object.entries(lists).filter(([, m]) =>
+      (!st.genre || (m.genre || "기타") === st.genre) &&
+      (!st.q || st.q.split(/\s+/).every(w => `${m.name} ${m.genre || ""} ${m.createdBy || ""}`.toLowerCase().includes(w))));
+    arr.sort(st.sort === "new"
+      ? (a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0)
+      : (a, b) => String(a[1].name).localeCompare(String(b[1].name), "ko"));
+    $("#count").textContent = `문제 ${arr.length}개 · ${arr.reduce((n, [, m]) => n + (m.count || 0), 0).toLocaleString()}곡`;
+
+    if (!arr.length) {
+      $("#list").innerHTML = Object.keys(lists).length
+        ? `<div class="empty">조건에 맞는 문제가 없어요</div>`
+        : `<div class="empty">아직 문제가 없어요.<br><a class="link" href="#/new">+ 새 문제</a>로 첫 플레이리스트를 만들어 보세요.</div>`;
+      return;
+    }
+
+    // 장르별로 묶어서 보여 주기
+    const groups = new Map(genres.map(g => [g, []]));
+    arr.forEach(e => groups.get(e[1].genre || "기타")?.push(e));
+    let html = "";
+    for (const [g, items] of groups) {
+      if (!items.length) continue;
+      html += `<h2 class="month">${esc(g)} · ${items.length}</h2>`;
+      html += items.map(([id, m]) => `
+        <article class="ev"><div class="lr">
+          <a class="lk" data-play="${esc(id)}" role="button" tabindex="0" title="이 문제로 방 만들기">
+            ${coverHTML(m)}
+            <span class="lk-t"><b>${esc(m.name)}</b>
+              <span class="off-note">${m.count || 0}곡 · 만든 사람 ${esc(m.createdBy || "익명")} · 누르면 방을 만들어요</span></span>
+          </a>
+          <a class="chip" href="#/list/${esc(id)}">편집</a>
+        </div></article>`).join("");
+    }
+    $("#list").innerHTML = html;
+  }
+
+  const play = async id => {
+    if (!requireName()) return;
+    const m = lists[id];
+    if (!m) return;
+    if (!m.count) return toast("아직 곡이 없는 문제예요. 편집에서 곡을 먼저 넣어 주세요");
+    try { await createRoom(id, m.count); }
+    catch (e) { console.error(e); toast("방을 만들지 못했어요. Firebase 설정과 규칙을 확인해 주세요"); }
+  };
+  $("#list").addEventListener("click", e => {
+    const lk = e.target.closest("[data-play]");
+    if (lk) play(lk.dataset.play);
+  });
+  $("#list").addEventListener("keydown", e => {
+    const lk = e.target.closest("[data-play]");
+    if (lk && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); play(lk.dataset.play); }
+  });
+}
+
+// ============================================================
+//  새 문제(플레이리스트) 만들기
+// ============================================================
+function genreDatalist(id) {
+  return `<datalist id="${id}">${DEFAULT_GENRES.map(g => `<option value="${esc(g)}">`).join("")}</datalist>`;
+}
+
+function viewNew() {
+  app.innerHTML = `
+  <div class="wrap">
+    <header>
+      <a href="#/" class="back">← 문제 목록</a>
+      <h1>새 문제 만들기</h1>
+      <div class="sub">만든 다음 곡을 넣으면 첫 화면 목록에 나타나요</div>
+    </header>
+    <div class="ev box">
+      <label class="field">문제 이름</label>
+      <input type="text" id="plName" class="full" maxlength="40" placeholder="예: JPOP 맞히기">
+      <label class="field">장르 <span>(고르거나 직접 입력)</span></label>
+      <input type="text" id="plGenre" class="full" maxlength="12" list="genres" placeholder="예: 여돌">
+      ${genreDatalist("genres")}
+      <label class="field">편집 비밀번호</label>
+      <input type="password" id="plPw" class="full" placeholder="곡을 추가하거나 고칠 때 필요해요">
+      <div style="margin-top:14px"><button class="btn" id="plCreate">만들기</button></div>
+    </div>
+  </div>`;
+
+  $("#plCreate").onclick = async () => {
+    const name = $("#plName").value.trim();
+    const genre = $("#plGenre").value.trim();
+    const pw = $("#plPw").value;
+    if (!name) return toast("문제 이름을 입력해 주세요");
+    if (!pw) return toast("편집 비밀번호를 정해 주세요");
+    $("#plCreate").disabled = true;
+    const r = push(ref(db, "playlistMeta"));
+    await set(r, { name, genre, count: 0, createdBy: getName() || "익명", pwHash: await hashPw(r.key, pw), updatedAt: serverTimestamp() });
+    sessionStorage.setItem("unlock_" + r.key, "1");
+    location.hash = "#/list/" + r.key;
+  };
+}
+
+// ============================================================
+//  문제(플레이리스트) 편집
+// ============================================================
+async function viewList(pid) {
+  const my = viewId;
+  const unlocked = sessionStorage.getItem("unlock_" + pid) === "1";
+  const metaRef = ref(db, "playlistMeta/" + pid);
+  const songsRef = ref(db, "playlistSongs/" + pid);
+
+  app.innerHTML = `
+  <div class="wrap">
+    <header>
+      <a href="#/" class="back">← 문제 목록</a>
+      <div class="lr" style="align-items:center">
+        <span id="cover"></span>
+        <div class="grow" style="min-width:0"><h1 id="title">불러오는 중…</h1><div class="sub" id="info"></div></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="chip primary" id="playBtn">▶ 이 문제로 방 만들기</button></div>
+    </header>
+    ${unlocked ? `
+    <div class="ev box" id="formCard" style="margin-top:14px">
+      <h3 id="formTitle">곡 추가</h3>
+      <label class="field">YouTube 링크</label>
+      <div class="row nowrap"><input type="text" id="url" class="grow" placeholder="https://youtu.be/..."><button class="chip" id="load">불러오기</button></div>
+      <div class="video-box" style="margin-top:10px"><div id="pv"></div><div class="cover" id="pvCover"><div class="cv-sub">링크를 넣고 불러오기를 누르세요</div></div></div>
+      <label class="field">정답</label>
+      <input type="text" id="answer" class="full" placeholder="곡 제목">
+      <label class="field">다른 정답 (쉼표로 구분, 선택)</label>
+      <input type="text" id="alts" class="full" placeholder="예: 터치마이바디, TMB">
+      <label class="field">시작 지점</label>
+      <div class="row">
+        <input type="text" id="start" placeholder="0:00" style="width:90px">
+        <button class="chip" id="setNow">지금 위치로</button>
+        <button class="chip" id="previewBtn">▶ 시작 지점부터 10초</button>
+      </div>
+      <div class="row" style="margin-top:14px"><button class="btn" id="save">추가하기</button><button class="chip" id="cancel" hidden>취소</button></div>
+    </div>
+    <details class="ev box">
+      <summary><b>여러 곡 한 번에 추가</b></summary>
+      <p class="sub">한 줄에 한 곡씩 <code>링크 | 정답 | 다른정답1, 다른정답2 | 시작지점</code><br>
+      정답 뒤는 생략해도 돼요. 정답을 비우면 영상 제목에서 자동으로 가져와요.</p>
+      <textarea id="bulk" rows="6" placeholder="https://youtu.be/xxxxxxxxxxx | 마리골드 | マリーゴールド | 0:45&#10;https://youtu.be/yyyyyyyyyyy"></textarea>
+      <div class="row"><button class="chip primary" id="bulkAdd">한 번에 추가</button><span id="bulkMsg" class="sub" style="margin:0"></span></div>
+    </details>
+    <h2 class="month">곡 목록 <span id="cnt"></span></h2>
+    <div class="ev box" id="songs"><span class="sub">불러오는 중…</span></div>
+    <h2 class="month">문제 설정</h2>
+    <div class="ev box">
+      <label class="field">문제 이름</label>
+      <div class="row nowrap"><input type="text" id="rename" class="grow" maxlength="40"><button class="chip" id="renameBtn">변경</button></div>
+      <label class="field">장르</label>
+      <div class="row nowrap"><input type="text" id="regenre" class="grow" maxlength="12" list="genres2"><button class="chip" id="regenreBtn">변경</button></div>
+      ${genreDatalist("genres2")}
+      <label class="field">편집 비밀번호</label>
+      <div class="row nowrap"><input type="password" id="newPw" class="grow" placeholder="새 비밀번호"><button class="chip" id="pwBtn">변경</button></div>
+      <div style="margin-top:16px"><button class="chip danger" id="delPl">문제 삭제</button></div>
+    </div>` : `
+    <div class="ev box" style="margin-top:14px">
+      <h3>🔒 편집하려면 비밀번호를 입력하세요</h3>
+      <p class="sub">정답 스포를 막으려고 곡 목록은 편집 권한이 있을 때만 보여요.</p>
+      <div class="row nowrap"><input type="password" id="pw" class="grow" placeholder="편집 비밀번호"><button class="chip primary" id="unlock">확인</button></div>
+    </div>`}
+  </div>`;
+
+  let meta = null;
+  let deleted = false;
+  onCleanup(onValue(metaRef, s => {
+    meta = s.val();
+    if (!$("#title")) return;
+    if (!meta) { $("#title").textContent = "없는 문제예요"; $("#info").textContent = ""; $("#cover").innerHTML = ""; return; }
+    $("#cover").innerHTML = coverHTML(meta);
+    $("#title").textContent = meta.name;
+    $("#info").textContent = `${meta.genre || "기타"} · ${meta.count || 0}곡 · 만든 사람 ${meta.createdBy || "익명"}`;
+    const rn = $("#rename"), rg = $("#regenre");
+    if (rn && document.activeElement !== rn) rn.value = meta.name;
+    if (rg && document.activeElement !== rg) rg.value = meta.genre || "";
+  }));
+
+  $("#playBtn").onclick = async () => {
+    if (!meta) return;
+    if (!getName()) { const n = prompt("닉네임을 입력해 주세요"); if (!n || !n.trim()) return; setName(n); }
+    if (!meta.count) return toast("곡을 먼저 넣어 주세요");
+    try { await createRoom(pid, meta.count); } catch (e) { console.error(e); toast("방을 만들지 못했어요"); }
+  };
+
+  if (!unlocked) {
+    const tryUnlock = async () => {
+      const m = (await get(metaRef)).val();
+      if (!m) return toast("없는 문제예요");
+      if (await hashPw(pid, $("#pw").value) === m.pwHash) {
+        sessionStorage.setItem("unlock_" + pid, "1");
+        route();
+      } else toast("비밀번호가 달라요");
+    };
+    $("#unlock").onclick = tryUnlock;
+    $("#pw").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
+    return;
+  }
+
+  // ----- 곡 목록 -----
+  let songs = {};
+  function renderSongs() {
+    const arr = Object.entries(songs).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    $("#cnt").textContent = `· ${arr.length}`;
+    $("#songs").innerHTML = arr.length ? arr.map(([sid, s], i) => `
+      <div class="song">
+        <span class="num">${i + 1}</span>
+        <span class="thumb" style="background-image:url(https://i.ytimg.com/vi/${esc(s.videoId)}/mqdefault.jpg)"></span>
+        <div class="grow lk-t">
+          <b>${esc(s.answer)}</b>
+          ${s.alts ? `<span class="off-note">다른 정답: ${esc(s.alts)}</span>` : ""}
+          <span class="off-note">${fmtTime(s.start)}부터 · <a class="link" href="https://youtu.be/${esc(s.videoId)}?t=${Math.floor(s.start || 0)}" target="_blank" rel="noopener">${esc(s.title || "YouTube")}</a></span>
+        </div>
+        <div class="row nowrap" style="margin:0">
+          <button class="chip" data-edit="${esc(sid)}">수정</button>
+          <button class="chip danger" data-del="${esc(sid)}">삭제</button>
+        </div>
+      </div>`).join("") : `<span class="sub">아직 곡이 없어요. 위에서 추가해 보세요.</span>`;
+  }
+  onCleanup(onValue(songsRef, s => {
+    songs = s.val() || {};
+    if (!$("#songs")) return;
+    renderSongs();
+    const n = Object.keys(songs).length;
+    if (!deleted && meta && meta.count !== n) update(metaRef, { count: n });
+  }));
+
+  // ----- 미리보기 플레이어 -----
+  let pvStop = null;
+  const pv = await createPlayer("pv", { controls: 1, onError: () => toast(EMBED_BLOCKED + ". 다른 영상을 써 주세요") });
+  if (my !== viewId) { try { pv.destroy(); } catch {} return; }
+  onCleanup(() => { clearTimeout(pvStop); try { pv.destroy(); } catch {} });
+
+  let cur = { sid: null, videoId: null, title: "" };
+
+  async function loadUrl() {
+    const p = parseYouTube($("#url").value);
+    if (!p) return toast("YouTube 링크를 확인해 주세요");
+    if (p.id === cur.videoId) return;
+    cur.videoId = p.id;
+    cur.title = "";
+    if (p.t != null && !$("#start").value) $("#start").value = fmtTime(p.t);
+    pv.cueVideoById({ videoId: p.id, startSeconds: parseTime($("#start").value) || 0 });
+    $("#pvCover").classList.add("hide");
+    if (!cur.sid && Object.values(songs).some(s => s.videoId === p.id)) toast("이미 목록에 있는 영상이에요");
+    const t = await fetchTitle(p.id);
+    if (cur.videoId !== p.id) return;
+    cur.title = t;
+    if (t && !$("#answer").value) $("#answer").value = guessAnswer(t);
+  }
+
+  function resetForm() {
+    cur = { sid: null, videoId: null, title: "" };
+    ["#url", "#answer", "#alts", "#start"].forEach(s => { $(s).value = ""; });
+    clearTimeout(pvStop);
+    try { pv.stopVideo(); } catch {}
+    $("#pvCover").classList.remove("hide");
+    $("#formTitle").textContent = "곡 추가";
+    $("#save").textContent = "추가하기";
+    $("#cancel").hidden = true;
+  }
+
+  $("#load").onclick = loadUrl;
+  $("#url").addEventListener("change", loadUrl);
+  $("#url").addEventListener("keydown", e => { if (e.key === "Enter") loadUrl(); });
+
+  $("#setNow").onclick = () => {
+    if (!cur.videoId) return toast("먼저 영상을 불러와 주세요");
+    $("#start").value = fmtTime(pv.getCurrentTime());
+  };
+
+  $("#previewBtn").onclick = () => {
+    if (!cur.videoId) return toast("먼저 영상을 불러와 주세요");
+    const s = parseTime($("#start").value);
+    if (isNaN(s)) return toast("시작 지점은 1:23처럼 써 주세요");
+    clearTimeout(pvStop);
+    pv.seekTo(s, true);
+    pv.playVideo();
+    pvStop = setTimeout(() => { try { pv.pauseVideo(); } catch {} }, 10000);
+  };
+
+  $("#cancel").onclick = resetForm;
+
+  $("#save").onclick = async () => {
+    const p = parseYouTube($("#url").value);
+    if (!p) return toast("YouTube 링크를 확인해 주세요");
+    const answer = $("#answer").value.trim();
+    if (!answer) return toast("정답을 입력해 주세요");
+    const start = parseTime($("#start").value);
+    if (isNaN(start)) return toast("시작 지점은 1:23처럼 써 주세요");
+    if (p.id !== cur.videoId) { cur.videoId = p.id; cur.title = await fetchTitle(p.id); }
+    const data = { videoId: p.id, answer, alts: cleanAlts($("#alts").value), start: Math.floor(start), title: cur.title || "" };
+    const wasEdit = !!cur.sid;
+    $("#save").disabled = true;
+    try {
+      if (wasEdit) await update(ref(db, `playlistSongs/${pid}/${cur.sid}`), data);
+      else await set(push(songsRef), { ...data, addedAt: serverTimestamp() });
+      await update(metaRef, { updatedAt: serverTimestamp() });
+      resetForm();
+      toast(wasEdit ? "수정했어요" : "추가했어요");
+    } catch (e) {
+      console.error(e);
+      toast("저장하지 못했어요");
+    }
+    $("#save").disabled = false;
+  };
+
+  $("#songs").addEventListener("click", async e => {
+    const editId = e.target.dataset.edit;
+    const delId = e.target.dataset.del;
+    if (editId && songs[editId]) {
+      const s = songs[editId];
+      cur = { sid: editId, videoId: s.videoId, title: s.title || "" };
+      $("#url").value = "https://youtu.be/" + s.videoId;
+      $("#answer").value = s.answer || "";
+      $("#alts").value = s.alts || "";
+      $("#start").value = fmtTime(s.start);
+      pv.cueVideoById({ videoId: s.videoId, startSeconds: s.start || 0 });
+      $("#pvCover").classList.add("hide");
+      $("#formTitle").textContent = "곡 수정";
+      $("#save").textContent = "수정 저장";
+      $("#cancel").hidden = false;
+      $("#formCard").scrollIntoView({ behavior: "smooth" });
+    }
+    if (delId && songs[delId]) {
+      if (!confirm(`'${songs[delId].answer}'을(를) 삭제할까요?`)) return;
+      await set(ref(db, `playlistSongs/${pid}/${delId}`), null);
+      if (cur.sid === delId) resetForm();
+      toast("삭제했어요");
+    }
+  });
+
+  // ----- 한 번에 추가 -----
+  $("#bulkAdd").onclick = async () => {
+    const lines = $("#bulk").value.split("\n").map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return toast("추가할 줄을 입력해 주세요");
+    $("#bulkAdd").disabled = true;
+    let ok = 0;
+    const failed = [];
+    for (const line of lines) {
+      if (my !== viewId) return;
+      const parts = line.split("|").map(x => x.trim());
+      const p = parseYouTube(parts[0]);
+      if (!p) { failed.push(line); continue; }
+      const title = await fetchTitle(p.id);
+      const answer = parts[1] || guessAnswer(title);
+      if (!answer) { failed.push(line); continue; }
+      let start = parts[3] ? parseTime(parts[3]) : (p.t || 0);
+      if (isNaN(start)) start = 0;
+      await set(push(songsRef), { videoId: p.id, answer, alts: cleanAlts(parts[2]), start: Math.floor(start), title, addedAt: serverTimestamp() });
+      ok++;
+      $("#bulkMsg").textContent = `${ok} / ${lines.length} 추가 중…`;
+    }
+    await update(metaRef, { updatedAt: serverTimestamp() });
+    $("#bulk").value = failed.join("\n");
+    $("#bulkMsg").textContent = `${ok}곡 추가했어요` + (failed.length ? ` · ${failed.length}줄은 링크나 정답을 확인해 주세요 (입력칸에 남겨 뒀어요)` : "");
+    $("#bulkAdd").disabled = false;
+  };
+
+  // ----- 문제 설정 -----
+  $("#renameBtn").onclick = async () => {
+    const name = $("#rename").value.trim();
+    if (!name) return toast("이름을 입력해 주세요");
+    await update(metaRef, { name, updatedAt: serverTimestamp() });
+    toast("이름을 바꿨어요");
+  };
+  $("#regenreBtn").onclick = async () => {
+    await update(metaRef, { genre: $("#regenre").value.trim(), updatedAt: serverTimestamp() });
+    toast("장르를 바꿨어요");
+  };
+  $("#pwBtn").onclick = async () => {
+    const pw = $("#newPw").value;
+    if (!pw) return toast("새 비밀번호를 입력해 주세요");
+    await update(metaRef, { pwHash: await hashPw(pid, pw) });
+    $("#newPw").value = "";
+    toast("비밀번호를 바꿨어요");
+  };
+  $("#delPl").onclick = async () => {
+    if (!confirm("이 문제와 안에 있는 곡을 모두 삭제할까요? 되돌릴 수 없어요.")) return;
+    deleted = true;
+    await update(ref(db), { ["playlistMeta/" + pid]: null, ["playlistSongs/" + pid]: null });
+    sessionStorage.removeItem("unlock_" + pid);
+    location.hash = "#/";
+  };
+}
+
+// ============================================================
+//  게임 방
+// ============================================================
+async function viewRoom(code) {
+  const my = viewId;
+
+  if (!getName()) {
+    app.innerHTML = `
+    <div class="wrap">
+      <header>
+        <a href="#/" class="back">← 문제 목록</a>
+        <h1>방 ${esc(code)} 들어가기</h1>
+        <div class="sub">친구들에게 보일 닉네임을 정해 주세요</div>
+      </header>
+      <div class="ev box">
+        <div class="row nowrap"><input type="text" id="nick" class="grow" maxlength="12" placeholder="닉네임"><button class="chip primary" id="go">입장</button></div>
+      </div>
+    </div>`;
+    const go = () => {
+      const n = $("#nick").value.trim();
+      if (!n) return toast("닉네임을 입력해 주세요");
+      setName(n);
+      route();
+    };
+    $("#go").onclick = go;
+    $("#nick").addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) go(); });
+    $("#nick").focus();
+    return;
+  }
+
+  app.innerHTML = `<div class="wrap"><div class="empty">방에 들어가는 중…</div></div>`;
+  const base = "rooms/" + code;
+  const roomRef = ref(db, base);
+  const stateRef = ref(db, base + "/state");
+  const meRef = ref(db, `${base}/players/${uid}`);
+  const onlineRef = ref(db, `${base}/players/${uid}/online`);
+
+  let exists = false;
+  try { exists = (await get(roomRef)).exists(); } catch (e) { console.error(e); }
+  if (my !== viewId) return;
+  if (!exists) {
+    app.innerHTML = `<div class="wrap"><header><a href="#/" class="back">← 문제 목록</a><h1>방을 찾을 수 없어요</h1><div class="sub">방 코드 <b>${esc(code)}</b>를 다시 확인해 주세요.</div></header></div>`;
+    return;
+  }
+
+  const me = (await get(meRef)).val();
+  if (me) await update(meRef, { name: getName(), online: true });
+  else await set(meRef, { name: getName(), score: 0, online: true, joinedAt: serverTimestamp() });
+  if (my !== viewId) return;
+
+  onCleanup(onValue(ref(db, ".info/connected"), s => {
+    if (s.val()) { onDisconnect(onlineRef).set(false); set(onlineRef, true); }
+  }));
+  onCleanup(() => { onDisconnect(onlineRef).cancel(); set(onlineRef, false); });
+
+  app.innerHTML = `
+  <div class="wrap wide">
+    <header>
+      <a href="#/" class="back">← 문제 목록 (방 나가기)</a>
+      <div class="lr">
+        <span id="roomCover"></span>
+        <div class="grow" style="min-width:0">
+          <h1 id="roomTitle">노래 맞히기</h1>
+          <div class="row" style="margin-top:4px">
+            <span class="label">방 코드</span><span class="code">${esc(code)}</span>
+            <button class="chip" id="copy">초대 링크 복사</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="grid">
+      <div>
+        <div class="video-box"><div id="yt"></div><div class="cover" id="cover"></div></div>
+        <div class="ev box status" id="status"></div>
+        <div id="controls"></div>
+        <div class="ev box">
+          <div class="row nowrap">
+            <input type="text" id="gIn" class="grow" placeholder="정답이나 채팅을 입력하세요" maxlength="60" autocomplete="off">
+            <button class="btn" id="gSend" style="padding:9px 16px">보내기</button>
+          </div>
+          <div id="feed" class="feed"></div>
+        </div>
+      </div>
+      <aside>
+        <div class="ev box"><h3>점수판</h3><ul id="players" class="players"></ul></div>
+        <div class="ev box">
+          <h3>🔊 볼륨</h3>
+          <input type="range" id="vol" min="0" max="100">
+          <p class="sub">노래가 안 들리면 아래 버튼을 눌러 주세요. 아이폰은 처음 한 번 눌러야 할 수 있어요.</p>
+          <button class="chip" id="resync">🔄 소리 다시 맞추기</button>
+        </div>
+      </aside>
+    </div>
+  </div>`;
+
+  $("#copy").onclick = async () => {
+    const link = location.href.split("#")[0] + "#/room/" + code;
+    try { await navigator.clipboard.writeText(link); toast("초대 링크를 복사했어요"); }
+    catch { prompt("이 링크를 복사해서 보내 주세요", link); }
+  };
+
+  // ----- 플레이어 -----
+  let room = null;
+  let curVideo = null;
+  const player = await createPlayer("yt", {
+    onError: () => toast(EMBED_BLOCKED + (room && room.host === uid ? ". '정답 공개'로 넘어가 주세요" : ""))
+  });
+  if (my !== viewId) { try { player.destroy(); } catch {} return; }
+  onCleanup(() => { try { player.destroy(); } catch {} });
+
+  const vol = () => +(localStorage.getItem("vol") ?? 80);
+  $("#vol").value = vol();
+  $("#vol").addEventListener("input", e => {
+    localStorage.setItem("vol", e.target.value);
+    try { player.setVolume(+e.target.value); } catch {}
+  });
+
+  let startT = null, stopT = null;
+  const clearPlayTimers = () => { clearTimeout(startT); clearTimeout(stopT); };
+  onCleanup(clearPlayTimers);
+
+  const clipMs = () => (room?.settings?.clipLen || 15) * 1000;
+
+  function playFrom(song, elapsedMs) {
+    const clip = clipMs();
+    if (elapsedMs >= clip) { try { player.pauseVideo(); } catch {} return; }
+    player.seekTo((song.start || 0) + elapsedMs / 1000, true);
+    player.unMute();
+    player.setVolume(vol());
+    player.playVideo();
+    clearTimeout(stopT);
+    stopT = setTimeout(() => { try { player.pauseVideo(); } catch {} }, clip - elapsedMs);
+  }
+
+  function schedulePlay(song, startAt) {
+    if (now() - startAt >= clipMs()) { try { player.stopVideo(); } catch {} return; }
+    // 카운트다운 동안 음소거 상태로 미리 불러와 둠
+    player.mute();
+    player.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
+    curVideo = song.videoId;
+    startT = setTimeout(() => playFrom(song, Math.max(0, now() - startAt)), Math.max(0, startAt - now()));
+  }
+
+  function playReveal(song) {
+    if (curVideo === song.videoId) player.seekTo(song.start || 0, true);
+    else { player.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 }); curVideo = song.videoId; }
+    player.unMute();
+    player.setVolume(vol());
+    player.playVideo();
+  }
+
+  let lastKey = null;
+  function handlePlayback() {
+    const st = room.state || {};
+    const key = [st.phase, st.index, st.playId].join("|");
+    if (key === lastKey) return;
+    lastKey = key;
+    clearPlayTimers();
+    const song = room.songs?.[st.index];
+    try {
+      if (st.phase === "playing" && song) schedulePlay(song, st.startAt);
+      else if (st.phase === "reveal" && song) playReveal(song);
+      else player.stopVideo();
+    } catch (e) { console.error(e); }
+  }
+
+  $("#resync").onclick = () => {
+    const st = room?.state || {};
+    const song = room?.songs?.[st.index];
+    try {
+      if (st.phase === "playing" && song) {
+        const el = now() - st.startAt;
+        if (el < 0) return toast("곧 시작해요");
+        if (el >= clipMs()) return toast("이번 곡 재생은 끝났어요");
+        clearPlayTimers();
+        playFrom(song, el);
+      } else if (st.phase === "reveal" && song) {
+        player.unMute(); player.setVolume(vol()); player.playVideo();
+      } else toast("노래가 나올 때 눌러 주세요");
+    } catch (e) { console.error(e); }
+  };
+
+  // ----- 방 데이터 구독 -----
+  let playlists = {};
+  onCleanup(onValue(ref(db, "playlistMeta"), s => { playlists = s.val() || {}; if (room) { renderHeader(); renderControls(true); } }));
+  onCleanup(onValue(roomRef, s => {
+    room = s.val();
+    if (!room) {
+      app.innerHTML = `<div class="wrap"><header><a href="#/" class="back">← 문제 목록</a><h1>방이 사라졌어요</h1></header></div>`;
+      return;
+    }
+    renderHeader();
+    renderPlayers();
+    renderFeed();
+    renderStage();
+    renderControls();
+    handlePlayback();
+  }));
+  const tick = setInterval(() => { if (room && room.state?.phase === "playing") renderStage(); }, 250);
+  onCleanup(() => clearInterval(tick));
+
+  const isHost = () => room && room.host === uid;
+  const myName = () => getName() || "익명";
+
+  let lastHeader = null;
+  function renderHeader() {
+    const m = playlists[room.settings?.playlistId];
+    const sig = m ? m.name + "|" + m.genre + "|" + m.count : "";
+    if (sig === lastHeader) return;
+    lastHeader = sig;
+    $("#roomTitle").textContent = m ? m.name : "노래 맞히기";
+    $("#roomCover").innerHTML = m ? coverHTML(m) : "";
+    document.title = (m ? m.name + " · " : "") + "노래 맞히기";
+  }
+  onCleanup(() => { document.title = "노래 맞히기"; });
+
+  function sortedPlayers() {
+    return Object.entries(room.players || {}).sort((a, b) =>
+      (b[1].score || 0) - (a[1].score || 0) || (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+  }
+
+  function renderPlayers() {
+    $("#players").innerHTML = sortedPlayers().map(([id, p], i) => `
+      <li class="${p.online ? "" : "off"}">
+        <span class="rk">${i + 1}</span>
+        <span class="nm">${id === room.host ? "👑 " : ""}${esc(p.name)}${id === uid ? " <span class='label'>(나)</span>" : ""}</span>
+        <span class="sc">${p.score || 0}</span>
+      </li>`).join("");
+  }
+
+  let lastFeedKey = null;
+  function renderFeed() {
+    const items = Object.entries(room.feed || {}).sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-60);
+    const key = items.length ? items[items.length - 1][0] + items.length : "";
+    if (key === lastFeedKey) return;
+    lastFeedKey = key;
+    const el = $("#feed");
+    el.innerHTML = items.length ? items.map(([, f]) => {
+      if (f.t === "ok") return `<div class="ok">🎉 ${esc(f.name)}님 정답!</div>`;
+      if (f.t === "sys") return `<div class="sys">${esc(f.text)}</div>`;
+      return `<div><b>${esc(f.name)}</b> ${esc(f.text)}</div>`;
+    }).join("") : `<div class="sys">정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요.</div>`;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  let lastCover = null, lastStatus = null;
+  function setStage(cover, status, hideCover = false) {
+    const c = $("#cover");
+    c.classList.toggle("hide", hideCover);
+    if (cover !== lastCover) { c.innerHTML = cover; lastCover = cover; }
+    if (status !== lastStatus) { $("#status").innerHTML = status; lastStatus = status; }
+  }
+
+  function renderStage() {
+    const st = room.state || { phase: "lobby" };
+    const total = room.songs?.length || 0;
+    const song = room.songs?.[st.index];
+    const s = room.settings || {};
+    const c = $("#cover");
+    const m = playlists[s.playlistId];
+    c.style.background = m ? genreColor(m.genre) : "";
+
+    if (st.phase === "lobby") {
+      const n = Object.keys(room.players || {}).length;
+      setStage(
+        `<div class="big">🎧</div><div class="cv-sub">방장이 게임을 시작하면 노래가 나와요</div>`,
+        `<b>대기 중</b> · ${n}명 참가<div class="sub">${m ? `${esc(m.name)} · ` : ""}${s.count || 10}곡 · 곡당 ${s.clipLen || 15}초</div>`
+      );
+    } else if (st.phase === "playing") {
+      const t = now(), clip = clipMs();
+      const head = `<span class="label">${st.index + 1} / ${total}</span>`;
+      if (t < st.startAt) {
+        setStage(`<div class="cv-sub">${st.index + 1}번째 곡</div><div class="big">${Math.ceil((st.startAt - t) / 1000)}</div>`,
+          `${head} 곧 시작해요`);
+      } else if (t < st.startAt + clip) {
+        setStage(`<div class="eq"><span></span><span></span><span></span><span></span><span></span></div><div class="cv-sub">${Math.ceil((st.startAt + clip - t) / 1000)}초</div>`,
+          `${head} <b>듣는 중!</b> 정답을 입력하세요`);
+      } else {
+        setStage(`<div class="big">?</div><div class="cv-sub">무슨 노래일까요?</div>`,
+          `${head} 재생이 끝났어요. 계속 맞혀 보세요`);
+      }
+    } else if (st.phase === "reveal" && song) {
+      setStage("",
+        `<span class="label">${st.index + 1} / ${total} 정답</span>
+         <div class="answer">${esc(song.answer)}</div>
+         ${st.winnerName ? `<div class="win">🎉 ${esc(st.winnerName)}님이 맞혔어요!</div>` : `<div class="sub">아무도 못 맞혔어요</div>`}`,
+        true);
+    } else if (st.phase === "end") {
+      const ranks = sortedPlayers();
+      const top = ranks[0]?.[1];
+      setStage(`<div class="big">🏆</div><div class="cv-sub">${top ? esc(top.name) + "님 우승!" : "게임 끝!"}</div>`,
+        `<b>최종 결과</b><div style="margin-top:6px">${ranks.map(([, p], i) =>
+          `<div>${["🥇", "🥈", "🥉"][i] || i + 1 + "."} ${esc(p.name)} · <b>${p.score || 0}점</b></div>`).join("")}</div>`);
+    }
+  }
+
+  // ----- 방장 컨트롤 -----
+  let lastCtrlSig = null;
+  function renderControls(force = false) {
+    const st = room.state || { phase: "lobby" };
+    const host = isHost();
+    const hostOnline = !!room.players?.[room.host]?.online;
+    const sig = JSON.stringify([st.phase, st.index, room.songs?.length, host, hostOnline, room.settings]);
+    if (!force && sig === lastCtrlSig) return;
+    lastCtrlSig = sig;
+    const el = $("#controls");
+
+    if (!host) {
+      el.innerHTML = hostOnline ? "" :
+        `<div class="ctl"><span class="sub" style="margin:0">방장이 나갔어요.</span><button class="chip primary" data-act="takeover">내가 방장 하기</button></div>`;
+      return;
+    }
+
+    if (st.phase === "lobby") {
+      const s = room.settings || {};
+      const opts = Object.entries(playlists)
+        .sort((a, b) => String(a[1].genre || "").localeCompare(String(b[1].genre || ""), "ko") || String(a[1].name).localeCompare(String(b[1].name), "ko"))
+        .map(([id, m]) => `<option value="${esc(id)}" ${id === s.playlistId ? "selected" : ""}>${m.genre ? `[${esc(m.genre)}] ` : ""}${esc(m.name)} (${m.count || 0}곡)</option>`).join("");
+      el.innerHTML = `
+      <div class="ev box">
+        <h3>게임 설정 <span class="label">(방장)</span></h3>
+        <div class="settings">
+          <div><label class="field">문제</label><select id="setPl"><option value="">고르세요</option>${opts}</select></div>
+          <div><label class="field">곡 수</label><input id="setCount" type="number" min="1" max="100" value="${s.count || 10}"></div>
+          <div><label class="field">곡당 재생</label><select id="setClip">${[5, 10, 15, 20, 30].map(v => `<option value="${v}" ${v === (s.clipLen || 15) ? "selected" : ""}>${v}초</option>`).join("")}</select></div>
+        </div>
+        <div class="ctl" style="margin:14px 0 0"><button class="btn" data-act="start">게임 시작</button></div>
+      </div>`;
+      $("#setPl").onchange = e => update(ref(db, base + "/settings"), { playlistId: e.target.value });
+      $("#setCount").onchange = e => update(ref(db, base + "/settings"), { count: Math.min(100, Math.max(1, parseInt(e.target.value) || 10)) });
+      $("#setClip").onchange = e => update(ref(db, base + "/settings"), { clipLen: +e.target.value });
+    } else if (st.phase === "playing") {
+      el.innerHTML = `<div class="ctl"><button class="chip" data-act="replay">🔁 다시 듣기</button><button class="chip" data-act="reveal">정답 공개</button></div>`;
+    } else if (st.phase === "reveal") {
+      const last = st.index + 1 >= (room.songs?.length || 0);
+      el.innerHTML = `<div class="ctl"><button class="btn" data-act="next">${last ? "결과 보기 🏆" : "다음 곡 ▶"}</button></div>`;
+    } else if (st.phase === "end") {
+      el.innerHTML = `<div class="ctl"><button class="btn" data-act="again">다시 하기</button><a class="chip" href="#/">다른 문제 고르기</a></div>`;
+    }
+  }
+
+  $("#controls").addEventListener("click", async e => {
+    const act = e.target.dataset?.act;
+    if (!act) return;
+    const st = room.state || {};
+    try {
+      if (act === "takeover") {
+        await update(roomRef, { host: uid });
+        await push(ref(db, base + "/feed"), { t: "sys", text: `${myName()}님이 방장이 됐어요` });
+      } else if (act === "start") {
+        await startGame();
+      } else if (act === "replay") {
+        await update(stateRef, { startAt: now() + 2500, playId: rid() });
+      } else if (act === "reveal") {
+        await runTransaction(stateRef, s => {
+          if (!s || s.phase !== "playing") return;
+          s.phase = "reveal";
+          return s;
+        });
+      } else if (act === "next") {
+        const i = st.index + 1;
+        if (i < (room.songs?.length || 0)) await set(stateRef, { phase: "playing", index: i, startAt: now() + 3500, playId: rid() });
+        else await set(stateRef, { phase: "end" });
+      } else if (act === "again") {
+        await set(stateRef, { phase: "lobby" });
+      }
+    } catch (err) {
+      console.error(err);
+      toast("처리하지 못했어요. 잠시 후 다시 눌러 주세요");
+    }
+  });
+
+  async function startGame() {
+    const s = room.settings || {};
+    if (!s.playlistId) return toast("문제를 골라 주세요");
+    const all = Object.values((await get(ref(db, "playlistSongs/" + s.playlistId))).val() || {});
+    if (!all.length) return toast("이 문제에는 곡이 없어요");
+    const songs = shuffle(all).slice(0, Math.min(s.count || 10, all.length)).map(x => ({
+      videoId: x.videoId, start: x.start || 0, answer: x.answer, alts: x.alts || "", title: x.title || ""
+    }));
+    const updates = { songs, feed: null, state: { phase: "playing", index: 0, startAt: now() + 4000, playId: rid() } };
+    for (const id of Object.keys(room.players || {})) updates[`players/${id}/score`] = 0;
+    await update(roomRef, updates);
+    await push(ref(db, base + "/feed"), { t: "sys", text: `게임 시작! 총 ${songs.length}곡이에요` });
+  }
+
+  // ----- 정답/채팅 입력 -----
+  async function send() {
+    const input = $("#gIn");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const st = room.state || {};
+    const song = room.songs?.[st.index];
+    if (st.phase === "playing" && song && isCorrect(text, song)) {
+      const res = await runTransaction(stateRef, s => {
+        if (!s || s.phase !== "playing" || s.winner || s.index !== st.index) return;
+        s.winner = uid;
+        s.winnerName = myName();
+        s.phase = "reveal";
+        return s;
+      });
+      if (res.committed) {
+        await runTransaction(ref(db, `${base}/players/${uid}/score`), v => (v || 0) + 1);
+        await push(ref(db, base + "/feed"), { t: "ok", name: myName() });
+      } else {
+        toast("아쉽게 한 발 늦었어요!");
+      }
+    } else {
+      await push(ref(db, base + "/feed"), { t: "chat", name: myName(), text: text.slice(0, 60) });
+    }
+  }
+  $("#gSend").onclick = send;
+  $("#gIn").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
+  });
+}
+
+route();
+</script>
+</body>
+</html>
