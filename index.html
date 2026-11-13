@@ -93,7 +93,7 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .video-box{position:relative;aspect-ratio:16/9;background:#14101f;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:16px}
 .video-box iframe,.video-box > div:first-child{position:absolute;inset:0;width:100%;height:100%}
 /* 듣는 중: 플레이어를 1×1px로 숨김 */
-.video-box.tiny iframe{inset:auto;left:-9999px;top:-9999px;width:1px!important;height:1px!important;opacity:.01}
+.video-box.tiny iframe{border:0;inset:auto;left:-9999px;top:-9999px;width:1px!important;height:1px!important;opacity:.01}
 .cover{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#3b9ff0,#7cc4fa);color:#fff;text-align:center;padding:16px}
 .cover.hide{display:none}
@@ -401,11 +401,11 @@ function miniCover(m) {
 }
 
 // ---------- YouTube 플레이어 ----------
-async function createPlayer(elId, { controls = 0, onError } = {}) {
+async function createPlayer(elId, { controls = 0, onError, tiny = false } = {}) {
   await window.__ytReady;
   return new Promise(resolve => {
     const p = new YT.Player(elId, {
-      width: "100%", height: "100%",
+      width: tiny ? "1" : "100%", height: tiny ? "1" : "100%",
       playerVars: { controls, disablekb: controls ? 0 : 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3, modestbranding: 1 },
       events: { onReady: () => resolve(p), onError: e => onError && onError(e) }
     });
@@ -1278,11 +1278,27 @@ async function viewRoom(code) {
   // ----- 플레이어 -----
   let room = null;
   let curVideo = null;
-  const player = await createPlayer("yt", {
-    onError: e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); }
-  });
-  if (my !== viewId) { try { player.destroy(); } catch {} return; }
-  onCleanup(() => { try { player.destroy(); } catch {} });
+  // 곡마다 1×1px 플레이어를 새로 만들어서 씀 (처음부터 아주 작은 플레이어로 불러와야 광고가 잘 안 붙음)
+  const onPlayErr = e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); };
+  let playerGen = 0;
+  async function freshPlayer() {
+    const gen = ++playerGen;
+    try { player && player.destroy(); } catch {}
+    const box = $("#ytBox");
+    box.querySelector("#yt")?.remove();
+    const div = document.createElement("div");
+    div.id = "yt";
+    box.prepend(div);
+    const p = await createPlayer("yt", { tiny: true, onError: onPlayErr });
+    if (gen !== playerGen || my !== viewId) { try { p.destroy(); } catch {} return null; }
+    player = p;
+    return p;
+  }
+  let player = null;
+  $("#ytBox").classList.add("tiny");
+  await freshPlayer();
+  if (my !== viewId) { try { player && player.destroy(); } catch {} return; }
+  onCleanup(() => { playerGen++; try { player && player.destroy(); } catch {} });
 
   // 링크로 바로 들어와서 아직 페이지를 한 번도 누르지 않았다면, 브라우저가 소리를 막으므로 한 번 누르게 함
   if (navigator.userActivation && !navigator.userActivation.hasBeenActive) $("#gate").hidden = false;
@@ -1381,11 +1397,14 @@ async function viewRoom(code) {
     }
   }
 
-  function schedulePlay(song, startAt) {
+  async function schedulePlay(song, startAt, key) {
     if (now() - startAt >= clipMs()) { try { player.stopVideo(); } catch {} return; }
-    // 카운트다운 동안 음소거 상태로 미리 불러와 둠
-    player.mute();
-    player.loadVideoById({ videoId: song.videoId, startSeconds: startOf(song) });
+    // 새 1×1 플레이어를 만들고, 카운트다운 동안 음소거 상태로 미리 불러와 둠
+    curVideo = null;
+    const p = await freshPlayer();
+    if (!p || key !== lastKey) return;
+    p.mute();
+    p.loadVideoById({ videoId: song.videoId, startSeconds: startOf(song) });
     curVideo = song.videoId;
     startT = setTimeout(() => playFrom(song, startAt), Math.max(0, startAt - now()));
   }
@@ -1413,7 +1432,7 @@ async function viewRoom(code) {
     // 듣는 중에는 플레이어를 1×1px로 숨기고(새 곡을 불러오기 전에 줄임), 정답 공개 때 다시 크게 보여 줌
     $("#ytBox").classList.toggle("tiny", st.phase === "playing");
     try {
-      if (st.phase === "playing" && song) schedulePlay(song, st.startAt);
+      if (st.phase === "playing" && song) schedulePlay(song, st.startAt, key).catch(e => console.error(e));
       else if (st.phase === "reveal" && song) playReveal(song);
       else player.stopVideo();
     } catch (e) { console.error(e); }
