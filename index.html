@@ -92,6 +92,8 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .room-grid .panel{margin-top:0;margin-bottom:16px}
 .video-box{position:relative;aspect-ratio:16/9;background:#14101f;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:16px}
 .video-box iframe,.video-box > div:first-child{position:absolute;inset:0;width:100%;height:100%}
+/* 듣는 중: 플레이어를 1×1px로 숨김 */
+.video-box.tiny iframe{inset:auto;left:-9999px;top:-9999px;width:1px!important;height:1px!important;opacity:.01}
 .cover{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#3b9ff0,#7cc4fa);color:#fff;text-align:center;padding:16px}
 .cover.hide{display:none}
@@ -1216,7 +1218,7 @@ async function viewRoom(code) {
   <div class="container">
     <div class="room-grid">
       <div>
-        <div class="video-box"><div id="yt"></div><div class="cover" id="cover"></div></div>
+        <div class="video-box" id="ytBox"><div id="yt"></div><div class="cover" id="cover"></div></div>
         <div class="panel status" id="status"></div>
         <button class="sound-alert" id="soundAlert" hidden>🔇 소리가 안 나오나요? 여기를 눌러 주세요</button>
         <div id="controls"></div>
@@ -1408,6 +1410,8 @@ async function viewRoom(code) {
     clearPlayTimers();
     $("#soundAlert").hidden = true;
     const song = room.songs?.[st.index];
+    // 듣는 중에는 플레이어를 1×1px로 숨기고(새 곡을 불러오기 전에 줄임), 정답 공개 때 다시 크게 보여 줌
+    $("#ytBox").classList.toggle("tiny", st.phase === "playing");
     try {
       if (st.phase === "playing" && song) schedulePlay(song, st.startAt);
       else if (st.phase === "reveal" && song) playReveal(song);
