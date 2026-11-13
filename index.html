@@ -151,6 +151,7 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .roll-in{display:flex;flex-direction:column;transition:transform 1.1s cubic-bezier(.2,.9,.25,1)}
 .roll-in span{height:1.4em;text-align:right}
 #gIn.k-ready{border-color:var(--primary);box-shadow:0 0 0 3px var(--badge-bg);caret-color:transparent}
+.err-line{color:#c25a00!important;font-weight:bold}
 /* 모션 */
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes popIn{0%{opacity:0;transform:scale(.88);filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{opacity:1;transform:none;filter:none}}
@@ -777,7 +778,8 @@ async function viewList(pid) {
   let songs = {};
   function renderSongs() {
     const arr = Object.entries(songs).sort((a, b) => (a[0] < b[0] ? -1 : 1));
-    $("#cnt").textContent = `· ${arr.length}곡`;
+    const errN = arr.filter(([, x]) => x.err).length;
+    $("#cnt").textContent = `· ${arr.length}곡` + (errN ? ` · ⚠ 재생 오류 ${errN}곡` : "");
     $("#songs").innerHTML = arr.length ? arr.map(([sid, s], i) => `
       <div class="song">
         <span class="num">${i + 1}</span>
@@ -785,6 +787,7 @@ async function viewList(pid) {
         <div class="txt">
           <b>${esc(s.answer)}</b>
           ${s.alts ? `<span class="sub">다른 정답: ${esc(s.alts)}</span>` : ""}
+          ${s.err ? `<span class="sub err-line">⚠ 재생 오류 ${s.err.count || 1}회 (오류 ${esc(s.err.code)}, ${s.err.ua === "mobile" ? "폰" : "PC"}, ${fmtDate(s.err.at)})</span>` : ""}
           <span class="sub">${s.start > 0 ? fmtTime(s.start) + "부터" : "랜덤 구간"} ·
             <a class="link" href="https://youtu.be/${esc(s.videoId)}${s.start > 0 ? "?t=" + Math.floor(s.start) : ""}" target="_blank" rel="noopener">${esc([s.orig || s.title, s.artist].filter(Boolean).join(" · ") || "YouTube")}</a></span>
         </div>
@@ -877,7 +880,7 @@ async function viewList(pid) {
     const wasEdit = !!cur.sid;
     $("#save").disabled = true;
     try {
-      if (wasEdit) await update(ref(db, `playlistSongs/${pid}/${cur.sid}`), data);
+      if (wasEdit) await update(ref(db, `playlistSongs/${pid}/${cur.sid}`), { ...data, err: null });
       else await set(push(songsRef), { ...data, addedAt: serverTimestamp() });
       await update(metaRef, { updatedAt: serverTimestamp() });
       resetForm();
@@ -1095,11 +1098,30 @@ async function viewRoom(code) {
     catch { prompt("이 링크를 복사해서 보내 주세요", link); }
   };
 
+  // 재생 오류 기록: 문제 데이터의 그 곡에 오류 번호·횟수·시각을 남김 (편집 화면에 ⚠ 로 보임)
+  const loggedErr = new Set();
+  function logPlayError(e) {
+    try {
+      const code = e?.data;
+      if (location.protocol === "file:" || code == null) return;
+      const song = (room?.songs || []).find(x => x.videoId === curVideo) || room?.songs?.[room?.state?.index];
+      const pid = room?.settings?.playlistId;
+      if (!song?.sid || !pid) return;
+      const k = song.sid + "|" + code;
+      if (loggedErr.has(k)) return;   // 같은 곡 같은 오류는 이 방에서 한 번만
+      loggedErr.add(k);
+      runTransaction(ref(db, `playlistSongs/${pid}/${song.sid}/err`), v => {
+        if (v && v.videoId && v.videoId !== song.videoId) v = null;   // 영상이 바뀌었으면 새로 셈
+        return { videoId: song.videoId, code, count: (v?.count || 0) + 1, at: Date.now(), ua: /Mobi/i.test(navigator.userAgent) ? "mobile" : "pc" };
+      }).catch(console.error);
+    } catch (err) { console.error(err); }
+  }
+
   // ----- 플레이어 -----
   let room = null;
   let curVideo = null;
   const player = await createPlayer("yt", {
-    onError: e => toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요")
+    onError: e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); }
   });
   if (my !== viewId) { try { player.destroy(); } catch {} return; }
   onCleanup(() => { try { player.destroy(); } catch {} });
@@ -1570,11 +1592,11 @@ async function viewRoom(code) {
   async function startGame() {
     const s = room.settings || {};
     if (!s.playlistId) return toast("문제를 골라 주세요");
-    const all = Object.values((await get(ref(db, "playlistSongs/" + s.playlistId))).val() || {});
+    const all = Object.entries((await get(ref(db, "playlistSongs/" + s.playlistId))).val() || {}).map(([sid, x]) => ({ ...x, sid }));
     if (!all.length) return toast("이 문제에는 곡이 없어요");
     // rf: 랜덤 구간 위치 (곡 길이의 20~65% 지점). 모든 참가자가 같은 값을 써서 같은 구간을 들어요.
     const songs = shuffle(all).slice(0, Math.min(s.count || 10, all.length)).map(x => ({
-      videoId: x.videoId, start: x.start || 0, len: x.len || 0, rf: +(0.2 + Math.random() * 0.45).toFixed(3),
+      sid: x.sid, videoId: x.videoId, start: x.start || 0, len: x.len || 0, rf: +(0.2 + Math.random() * 0.45).toFixed(3),
       answer: x.answer, alts: x.alts || "", orig: x.orig || "", artist: x.artist || ""
     }));
     const updates = { songs, feed: null, state: { phase: "playing", index: 0, startAt: now() + 3000, playId: rid() } };
