@@ -1191,6 +1191,13 @@ async function viewRoom(code) {
   }
 
   const me = snapRoom.players?.[uid];
+  // 인원 제한: 나를 뺀 접속자 수가 이미 최대 인원이면 못 들어옴 (0이면 무제한)
+  const maxP = snapRoom.settings?.maxPlayers || 0;
+  const othersOnline = Object.entries(snapRoom.players || {}).filter(([id, p]) => id !== uid && p.online).length;
+  if (maxP > 0 && othersOnline >= maxP) {
+    app.innerHTML = hero("방이 가득 찼어요", `이 방은 최대 <b>${maxP}명</b>까지 들어올 수 있어요. 자리가 나면 다시 시도해 주세요.`, { back: true, small: true });
+    return;
+  }
   if (me) await update(meRef, { name: getName(), online: true, lastSeen: serverTimestamp() });
   else await set(meRef, { name: getName(), score: 0, online: true, joinedAt: serverTimestamp(), lastSeen: serverTimestamp() });
   if (my !== viewId) return;
@@ -1825,10 +1832,10 @@ async function viewRoom(code) {
     $("#cover").style.background = m ? genreColor(m.genre) : "";
 
     if (st.phase === "lobby") {
-      const n = Object.keys(room.players || {}).length;
+      const n = Object.values(room.players || {}).filter(p => p.online).length;
       setStage(
         `<div class="big">🎧</div><div class="cv-sub">방장이 게임을 시작하면 노래가 나와요</div>`,
-        `<span class="step">대기 중 · ${n}명 참가</span>
+        `<span class="step">대기 중 · ${n}${s.maxPlayers ? "/" + s.maxPlayers : ""}명 참가</span>
          <div class="orig">${(GAME_MODES[s.mode] || GAME_MODES.speed).label} · ${m ? `${esc(m.name)} · ` : ""}${s.count || 10}곡 · 곡당 ${s.clipLen === 0 ? `무제한 (힌트 ${hintSecs()[0]}초 · ${hintSecs()[1]}초)` : (s.clipLen || 30) + "초"} · ${MODE_LABEL[s.startMode || "auto"]}</div>`
       );
     } else if (st.phase === "playing" && song) {
@@ -1914,7 +1921,7 @@ async function viewRoom(code) {
     const host = isHost();
     const votes = voteCount(st), need = needVotes(st), mine = !!st.skips?.[uid], done = solvedMe(st);
     const revealLeft = st.phase === "reveal" ? Math.max(0, Math.ceil(((st.revealAt || 0) + REVEAL_MS - now()) / 1000)) : 0;
-    const sig = JSON.stringify([st.phase, st.index, room.songs?.length, host, room.settings, votes, need, mine, done, revealLeft]);
+    const sig = JSON.stringify([st.phase, st.index, room.songs?.length, host, room.settings, votes, need, mine, done, revealLeft, st.phase === "lobby" ? Object.values(room.players || {}).filter(p => p.online).length : 0]);
     if (!force && sig === lastCtrlSig) return;
     lastCtrlSig = sig;
     const el = $("#controls");
@@ -1956,6 +1963,7 @@ async function viewRoom(code) {
               <span class="hint" style="margin:0">첫 번째 힌트</span><input id="setH1" type="number" min="1" step="1" value="${hintSecs()[0]}" style="width:80px"><span class="hint" style="margin:0">초 뒤,</span>
               <span class="hint" style="margin:0">두 번째 힌트</span><input id="setH2" type="number" min="1" step="1" value="${hintSecs()[1]}" style="width:80px"><span class="hint" style="margin:0">초 뒤</span>
             </div></div>` : ""}
+          <div><label class="field">최대 인원 ${s.maxPlayers ? `(지금 ${Object.values(room.players || {}).filter(p => p.online).length}명)` : ""}</label><select id="setMax">${[0, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}" ${v === (s.maxPlayers || 0) ? "selected" : ""}>${v ? v + "명" : "무제한"}</option>`).join("")}</select></div>
           <div style="grid-column:1/-1"><label class="field">게임 방식</label><select id="setGame">${Object.entries(GAME_MODES).map(([k, v]) => `<option value="${k}" ${k === (s.mode || "speed") ? "selected" : ""}>${v.label} — ${v.desc}</option>`).join("")}</select></div>
           <div style="grid-column:1/-1"><label class="field">재생 구간</label><select id="setMode">${Object.entries(MODE_LABEL).map(([k, v]) => `<option value="${k}" ${k === (s.startMode || "auto") ? "selected" : ""}>${v}</option>`).join("")}</select></div>
         </div>
@@ -1978,6 +1986,12 @@ async function viewRoom(code) {
       if ($("#setH1")) { $("#setH1").onchange = saveHints; $("#setH2").onchange = saveHints; }
       $("#setMode").onchange = e => update(ref(db, base + "/settings"), { startMode: e.target.value });
       $("#setGame").onchange = e => update(ref(db, base + "/settings"), { mode: e.target.value });
+      $("#setMax").onchange = e => {
+        const v = +e.target.value;
+        const n = Object.values(room.players || {}).filter(p => p.online).length;
+        if (v && n > v) toast(`지금 ${n}명이 있어요. 이미 들어온 사람은 그대로 있고, 새로 들어오는 것만 막아요`);
+        update(ref(db, base + "/settings"), { maxPlayers: v });
+      };
     } else if (st.phase === "end") {
       el.innerHTML = `<div class="ctl"><button class="btn" data-act="again">다시 하기</button><a class="btn-secondary" href="#/">다른 문제 고르기</a></div>`;
     }
