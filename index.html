@@ -1328,26 +1328,79 @@ async function viewRoom(code) {
   // ----- 다음 곡 미리 틀어 두기 -----
   // 지금 곡을 듣는 동안 다음 곡을 숨은 플레이어에서 소리 없이 미리 재생해 둠
   // → 광고가 붙어도 지금 곡 시간 동안 조용히 지나가서, 다음 곡은 기다림 없이 바로 시작
-  let pre = null;
-  async function prefetch(i) {
-    const song = room?.songs?.[i];
-    if (!song || (pre && pre.videoId === song.videoId)) return;
-    try { pre && pre.p && pre.p.destroy(); } catch {}
-    const slot = { videoId: song.videoId, p: null, err: false };
-    pre = slot;
+  // 다음 곡 여러 개(PC 10곡, 휴대폰 2곡)를 숨은 플레이어에서 소리 없이 미리 틀어 둠
+  // → 광고가 붙어 있으면 앞 곡들 듣는 동안 조용히 지나감. 광고가 끝나고 진짜 노래가 흐르기 시작하면 바로 멈춰 둠(기기 부담·영상 끝남 방지)
+  const PRE_N = matchMedia("(pointer:coarse)").matches ? 2 : 10;
+  const pres = new Map();   // 곡 번호 → { videoId, p, err, done }
+  let preBusy = false, preWatch = null;
+  const killSlot = sl => { try { sl.p && sl.p.destroy(); } catch {} };
+  async function prefetch(from) {
+    // 지난 곡·범위 밖 곡은 정리
+    for (const [i, sl] of pres) if (i < from || i >= from + PRE_N || sl.videoId !== room?.songs?.[i]?.videoId) { killSlot(sl); pres.delete(i); }
+    if (preBusy) return;
+    preBusy = true;
+    try {
+      for (let i = from; i < from + PRE_N; i++) {
+        const song = room?.songs?.[i];
+        if (!song || my !== viewId) break;
+        if (pres.has(i)) continue;
+        const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
+        pres.set(i, slot);
+        const p = await makePlayer(() => { slot.err = true; }, true);
+        if (pres.get(i) !== slot || my !== viewId) { try { p.destroy(); } catch {} continue; }
+        slot.p = p;
+        p.mute();
+        p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
+        await new Promise(r => setTimeout(r, 1500));   // 한꺼번에 몰아서 부르지 않게 조금씩 띄움
+      }
+    } finally { preBusy = false; }
+    // 범위가 그 사이에 바뀌었으면 한 번 더
+    const cur = room?.state?.index;
+    if (typeof cur === "number" && cur + 1 !== from && my === viewId) prefetch(cur + 1).catch(console.error);
+  }
+  // 미리 틀어 둔 플레이어들: 광고 끝나고 진짜 노래가 1초쯤 흐르면 멈춰 둠
+  preWatch = setInterval(() => {
+    for (const sl of pres.values()) {
+      if (!sl.p || sl.done || sl.err) continue;
+      let state, t, vid;
+      try { state = sl.p.getPlayerState(); t = sl.p.getCurrentTime(); vid = sl.p.getVideoData()?.video_id; } catch { continue; }
+      const adv = sl.lastT !== null && t - sl.lastT >= 0.05;
+      sl.lastT = t;
+      if (state === YT.PlayerState.PLAYING && adv && (!vid || vid === sl.videoId)) { sl.good = (sl.good || 0) + 1; if (sl.good >= 3) { try { sl.p.pauseVideo(); } catch {} sl.done = true; } }
+      else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.CUED || state === -1) { try { sl.p.playVideo(); } catch {} }
+    }
+  }, 400);
+  onCleanup(() => clearInterval(preWatch));
+  // 대기 화면에서 첫 곡 1개만 미리 틀어 둠 (방장이 정해 둔 곡 순서 기준)
+  let lobbyTok = 0;
+  async function lobbyPrefetch() {
+    const ph = room?.state?.phase;
+    if (ph && ph !== "lobby") return;
+    const song = room?.draft?.songs?.[0];
+    for (const [i, sl] of pres) if (i !== 0 || !song || sl.videoId !== song.videoId) { killSlot(sl); pres.delete(i); }
+    if (!song || pres.has(0)) return;
+    const tok = ++lobbyTok;
+    await new Promise(r => setTimeout(r, 1200));   // 방장이 문제를 이리저리 바꾸는 중이면 기다렸다가
+    if (tok !== lobbyTok || my !== viewId || room?.draft?.songs?.[0]?.videoId !== song.videoId || pres.has(0)) return;
+    const ph2 = room?.state?.phase;
+    if (ph2 && ph2 !== "lobby") return;
+    const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
+    pres.set(0, slot);
     const p = await makePlayer(() => { slot.err = true; }, true);
-    if (pre !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
+    if (pres.get(0) !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
     slot.p = p;
     p.mute();
     p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
   }
   // 미리 틀어 둔 플레이어가 있으면 그걸 지금 플레이어로 씀
   function adoptPre(song) {
-    if (!pre || pre.videoId !== song.videoId || !pre.p || pre.err) return null;
+    const i = room?.state?.index;
+    const sl = pres.get(i);
+    if (!sl || sl.videoId !== song.videoId || !sl.p || sl.err) return null;
+    pres.delete(i);
     playerGen++;
     try { player && player.destroy(); } catch {}
-    player = pre.p;
-    pre = null;
+    player = sl.p;
     try { player.getIframe().classList.remove("bg"); } catch {}
     resetAd();
     return player;
@@ -1356,7 +1409,7 @@ async function viewRoom(code) {
   $("#ytBox").classList.add("tiny");
   await freshPlayer();
   if (my !== viewId) { try { player && player.destroy(); } catch {} return; }
-  onCleanup(() => { playerGen++; try { player && player.destroy(); } catch {} try { pre && pre.p && pre.p.destroy(); } catch {} pre = null; });
+  onCleanup(() => { playerGen++; try { player && player.destroy(); } catch {} for (const sl of pres.values()) killSlot(sl); pres.clear(); });
 
   // 링크로 바로 들어와서 아직 페이지를 한 번도 누르지 않았다면, 브라우저가 소리를 막으므로 한 번 누르게 함
   if (navigator.userActivation && !navigator.userActivation.hasBeenActive) $("#gate").hidden = false;
@@ -1638,6 +1691,8 @@ async function viewRoom(code) {
     armStart();
     tryGo();
     autoAdvance();
+    ensureDraft();
+    lobbyPrefetch().catch(console.error);
   }));
   const tick = setInterval(() => {
     if (!room) return;
@@ -2054,17 +2109,37 @@ async function viewRoom(code) {
     }
   });
 
-  async function startGame() {
-    const s = room.settings || {};
-    if (!s.playlistId) return toast("문제를 골라 주세요");
+  // 곡 순서 정하기 (섞어서 개수만큼)
+  async function buildSongs(s) {
     const all = Object.entries((await get(ref(db, "playlistSongs/" + s.playlistId))).val() || {}).map(([sid, x]) => ({ ...x, sid }));
-    if (!all.length) return toast("이 문제에는 곡이 없어요");
     // rf: 랜덤 구간 위치 (곡 길이의 20~65% 지점). 모든 참가자가 같은 값을 써서 같은 구간을 들어요.
-    const songs = shuffle(all).slice(0, Math.min(s.count || 10, all.length)).map(x => ({
+    return shuffle(all).slice(0, Math.min(s.count || 10, all.length)).map(x => ({
       sid: x.sid, videoId: x.videoId, start: x.start || 0, end: x.end || 0, gap: x.gap || 0, len: x.len || 0, rf: +(0.2 + Math.random() * 0.45).toFixed(3),
       answer: x.answer, alts: x.alts || "", orig: x.orig || "", artist: x.artist || ""
     }));
-    const updates = { songs, feed: null, ready: null, state: newPlaying(0) };
+  }
+  // 대기 화면: 방장이 곡 순서를 미리 정해 두면(draft), 모두가 첫 곡을 미리 틀어 둘 수 있음
+  const draftKey = () => { const s = room?.settings || {}; return s.playlistId ? s.playlistId + "|" + (s.count || 10) : ""; };
+  let draftBusy = "";
+  async function ensureDraft() {
+    const ph = room?.state?.phase;
+    if (!isHost() || (ph && ph !== "lobby")) return;
+    const key = draftKey();
+    if (!key || room.draft?.key === key || draftBusy === key) return;
+    draftBusy = key;
+    try {
+      const songs = await buildSongs(room.settings);
+      if (draftKey() === key && songs.length) await update(roomRef, { draft: { key, songs } });
+    } catch (e) { console.error(e); }
+    finally { if (draftBusy === key) draftBusy = ""; }
+  }
+  async function startGame() {
+    const s = room.settings || {};
+    if (!s.playlistId) return toast("문제를 골라 주세요");
+    const d = room.draft;
+    const songs = d?.key === draftKey() && d.songs?.length ? d.songs : await buildSongs(s);
+    if (!songs.length) return toast("이 문제에는 곡이 없어요");
+    const updates = { songs, draft: null, feed: null, ready: null, state: newPlaying(0) };
     for (const id of Object.keys(room.players || {})) updates[`players/${id}/score`] = 0;
     await update(roomRef, updates);
     await push(ref(db, base + "/feed"), { t: "sys", text: `게임 시작! 총 ${songs.length}곡이에요` });
