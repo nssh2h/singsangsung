@@ -31,9 +31,6 @@ a.link{color:var(--primary-hover);text-decoration:underline}
 .room-code button{border:none;border-radius:999px;background:#fff;color:var(--badge-text);font:inherit;font-size:.8rem;font-weight:bold;padding:4px 12px;cursor:pointer}
 
 .container{max-width:1100px;margin:0 auto;padding:20px}
-/* 큰 화면에선 전체 UI를 조금 키움 */
-@media (min-width:1500px){ body{zoom:1.12} }
-@media (min-width:2200px){ body{zoom:1.25} }
 .container.narrow{max-width:760px}
 .panel{background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--line);box-shadow:0 4px 12px rgba(0,0,0,.05);margin-top:20px}
 .panel.lift{margin-top:-44px}
@@ -1201,6 +1198,12 @@ async function viewRoom(code) {
   }
 
   const me = snapRoom.players?.[uid];
+  // 게임이 진행 중이면 새로 들어올 수 없음 (원래 참가자가 새로고침·재접속하는 건 괜찮음)
+  const phNow = snapRoom.state?.phase;
+  if (!me && (phNow === "playing" || phNow === "reveal")) {
+    app.innerHTML = hero("이미 게임이 진행 중이에요", "중간에는 들어올 수 없어요. 이번 게임이 끝나고 대기 화면이 되면 다시 들어와 주세요.", { back: true, small: true });
+    return;
+  }
   // 인원 제한: 나를 뺀 접속자 수가 이미 최대 인원이면 못 들어옴 (0이면 무제한)
   const maxP = snapRoom.settings?.maxPlayers || 0;
   const othersOnline = Object.entries(snapRoom.players || {}).filter(([id, p]) => id !== uid && p.online).length;
