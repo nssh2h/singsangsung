@@ -1340,14 +1340,17 @@ async function viewRoom(code) {
   const pres = new Map();   // 곡 번호 → { videoId, p, err, done }
   let preBusy = false, preWatch = null;
   const killSlot = sl => { try { sl.p && sl.p.destroy(); } catch {} };
+  // 대기 화면에선 방장이 미리 정해 둔 곡 순서(draft), 게임 중엔 실제 곡 목록 기준
+  const inLobby = () => { const ph = room?.state?.phase; return !ph || ph === "lobby"; };
+  const preList = () => inLobby() ? (room?.draft?.songs || []) : (room?.songs || []);
   async function prefetch(from) {
     // 지난 곡·범위 밖 곡은 정리
-    for (const [i, sl] of pres) if (i < from || i >= from + PRE_N || sl.videoId !== room?.songs?.[i]?.videoId) { killSlot(sl); pres.delete(i); }
+    for (const [i, sl] of pres) if (i < from || i >= from + PRE_N || sl.videoId !== preList()[i]?.videoId) { killSlot(sl); pres.delete(i); }
     if (preBusy) return;
     preBusy = true;
     try {
       for (let i = from; i < from + PRE_N; i++) {
-        const song = room?.songs?.[i];
+        const song = preList()[i];
         if (!song || my !== viewId) break;
         if (pres.has(i)) continue;
         const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
@@ -1361,8 +1364,8 @@ async function viewRoom(code) {
       }
     } finally { preBusy = false; }
     // 범위가 그 사이에 바뀌었으면 한 번 더
-    const cur = room?.state?.index;
-    if (typeof cur === "number" && cur + 1 !== from && my === viewId) prefetch(cur + 1).catch(console.error);
+    const want = inLobby() ? 0 : (typeof room?.state?.index === "number" ? room.state.index + 1 : null);
+    if (want !== null && want !== from && my === viewId) prefetch(want).catch(console.error);
   }
   // 미리 틀어 둔 플레이어들: 광고 끝나고 진짜 노래가 1초쯤 흐르면 멈춰 둠
   preWatch = setInterval(() => {
@@ -1377,26 +1380,17 @@ async function viewRoom(code) {
     }
   }, 400);
   onCleanup(() => clearInterval(preWatch));
-  // 대기 화면에서 첫 곡 1개만 미리 틀어 둠 (방장이 정해 둔 곡 순서 기준)
-  let lobbyTok = 0;
+  // 대기 화면에서부터 앞쪽 곡들(PC 10곡, 휴대폰 2곡)을 미리 틀어 둠 (방장이 정해 둔 곡 순서 기준)
+  let lobbyTok = 0, lobbyKey = "";
   async function lobbyPrefetch() {
-    const ph = room?.state?.phase;
-    if (ph && ph !== "lobby") return;
-    const song = room?.draft?.songs?.[0];
-    for (const [i, sl] of pres) if (i !== 0 || !song || sl.videoId !== song.videoId) { killSlot(sl); pres.delete(i); }
-    if (!song || pres.has(0)) return;
+    if (!inLobby()) { lobbyKey = ""; return; }
+    const key = (room?.draft?.songs || []).slice(0, PRE_N).map(x => x.videoId).join(",");
+    if (key === lobbyKey) return;
+    lobbyKey = key;
     const tok = ++lobbyTok;
     await new Promise(r => setTimeout(r, 1200));   // 방장이 문제를 이리저리 바꾸는 중이면 기다렸다가
-    if (tok !== lobbyTok || my !== viewId || room?.draft?.songs?.[0]?.videoId !== song.videoId || pres.has(0)) return;
-    const ph2 = room?.state?.phase;
-    if (ph2 && ph2 !== "lobby") return;
-    const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
-    pres.set(0, slot);
-    const p = await makePlayer(() => { slot.err = true; }, true);
-    if (pres.get(0) !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
-    slot.p = p;
-    p.mute();
-    p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
+    if (tok !== lobbyTok || my !== viewId || !inLobby()) return;
+    await prefetch(0);
   }
   // 미리 틀어 둔 플레이어가 있으면 그걸 지금 플레이어로 씀
   function adoptPre(song) {
