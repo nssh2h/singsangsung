@@ -93,6 +93,7 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .video-box{position:relative;aspect-ratio:16/9;background:#14101f;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:16px}
 .video-box iframe,.video-box > div:first-child{position:absolute;inset:0;width:100%;height:100%}
 /* 듣는 중: 플레이어를 1×1px로 숨김 */
+.video-box iframe.bg{left:-9999px!important;top:-9999px!important;right:auto!important;bottom:auto!important;width:1px!important;height:1px!important;opacity:.01;border:0}
 .video-box.tiny iframe{border:0;inset:auto;left:-9999px;top:-9999px;width:1px!important;height:1px!important;opacity:.01}
 .cover{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#3b9ff0,#7cc4fa);color:#fff;text-align:center;padding:16px}
@@ -104,7 +105,8 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .eq span:nth-child(2){animation-delay:.15s}.eq span:nth-child(3){animation-delay:.3s}
 .eq span:nth-child(4){animation-delay:.45s}.eq span:nth-child(5){animation-delay:.6s}
 @keyframes eq{0%,100%{height:12px}50%{height:60px}}
-.status{text-align:center}
+.status{text-align:center;min-height:220px;display:flex;flex-direction:column;justify-content:center}
+.status .step{align-self:center}
 .status .step{display:inline-block;background:var(--badge-bg);color:var(--badge-text);font-size:.78rem;font-weight:bold;padding:2px 10px;border-radius:12px;margin-bottom:4px}
 .answer{font-size:1.7rem;font-weight:800;margin:2px 0;color:var(--primary-hover);line-height:1.3}
 .orig{color:var(--muted);font-size:.9rem}
@@ -130,6 +132,8 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .timebar span{display:block;height:100%;background:linear-gradient(90deg,#7cc4fa,#3b9ff0);transition:width .25s linear}
 .hint-line{font-size:1.05rem;margin:2px 0}
 .hint-line b{color:var(--primary-hover)}
+.ad-note{border-radius:12px;background:#eef5ff;color:#2b5aa8;font-weight:bold;padding:12px;margin-bottom:16px;text-align:center}
+.ad-shield{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;background:#14101f;color:#fff;font-weight:bold}
 .sound-alert{display:block;width:100%;border:none;border-radius:12px;background:#fff3cd;color:#8a5a00;font:inherit;font-weight:bold;padding:12px;margin-bottom:16px;cursor:pointer;animation:pulse 1.2s infinite}
 @keyframes pulse{50%{opacity:.7}}
 .gate{position:fixed;inset:0;background:rgba(20,40,60,.45);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
@@ -1218,7 +1222,8 @@ async function viewRoom(code) {
   <div class="container">
     <div class="room-grid">
       <div>
-        <div class="video-box" id="ytBox"><div id="yt"></div><div class="cover" id="cover"></div></div>
+        <div class="video-box" id="ytBox"><div id="yt"></div><div class="cover" id="cover"></div><div class="ad-shield" id="adShield" hidden>📺 광고가 끝나면 영상이 나와요</div></div>
+        <div class="ad-note" id="adNote" hidden>🔇 YouTube 광고 중이라 소리를 껐어요. 광고가 끝나면 다른 사람들과 같은 위치부터 이어서 들려요</div>
         <div class="panel status" id="status"></div>
         <button class="sound-alert" id="soundAlert" hidden>🔇 소리가 안 나오나요? 여기를 눌러 주세요</button>
         <div id="controls"></div>
@@ -1279,26 +1284,62 @@ async function viewRoom(code) {
   let room = null;
   let curVideo = null;
   // 곡마다 1×1px 플레이어를 새로 만들어서 씀 (처음부터 아주 작은 플레이어로 불러와야 광고가 잘 안 붙음)
-  const onPlayErr = e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); };
+  const onPlayErr = e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); markReady(); };
   let playerGen = 0;
+  let inAd = false, adWatch = null, frozen = 0, lastT = null;
+  let ytSeq = 0;
+  // 플레이어 칸 하나 만들기 (bg = 다음 곡을 미리 틀어 두는 숨은 플레이어)
+  async function makePlayer(onError, bg) {
+    const box = $("#ytBox");
+    const div = document.createElement("div");
+    div.id = "yt" + ++ytSeq;
+    box.prepend(div);
+    const p = await createPlayer(div.id, { tiny: true, onError });
+    try { p.getIframe().classList.toggle("bg", !!bg); } catch {}
+    return p;
+  }
   async function freshPlayer() {
     const gen = ++playerGen;
     try { player && player.destroy(); } catch {}
-    const box = $("#ytBox");
-    box.querySelector("#yt")?.remove();
-    const div = document.createElement("div");
-    div.id = "yt";
-    box.prepend(div);
-    const p = await createPlayer("yt", { tiny: true, onError: onPlayErr });
+    player = null;
+    const p = await makePlayer(e => onPlayErr(e), false);
     if (gen !== playerGen || my !== viewId) { try { p.destroy(); } catch {} return null; }
     player = p;
+    resetAd();
     return p;
+  }
+  // ----- 다음 곡 미리 틀어 두기 -----
+  // 지금 곡을 듣는 동안 다음 곡을 숨은 플레이어에서 소리 없이 미리 재생해 둠
+  // → 광고가 붙어도 지금 곡 시간 동안 조용히 지나가서, 다음 곡은 기다림 없이 바로 시작
+  let pre = null;
+  async function prefetch(i) {
+    const song = room?.songs?.[i];
+    if (!song || (pre && pre.videoId === song.videoId)) return;
+    try { pre && pre.p && pre.p.destroy(); } catch {}
+    const slot = { videoId: song.videoId, p: null, err: false };
+    pre = slot;
+    const p = await makePlayer(() => { slot.err = true; }, true);
+    if (pre !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
+    slot.p = p;
+    p.mute();
+    p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
+  }
+  // 미리 틀어 둔 플레이어가 있으면 그걸 지금 플레이어로 씀
+  function adoptPre(song) {
+    if (!pre || pre.videoId !== song.videoId || !pre.p || pre.err) return null;
+    playerGen++;
+    try { player && player.destroy(); } catch {}
+    player = pre.p;
+    pre = null;
+    try { player.getIframe().classList.remove("bg"); } catch {}
+    resetAd();
+    return player;
   }
   let player = null;
   $("#ytBox").classList.add("tiny");
   await freshPlayer();
   if (my !== viewId) { try { player && player.destroy(); } catch {} return; }
-  onCleanup(() => { playerGen++; try { player && player.destroy(); } catch {} });
+  onCleanup(() => { playerGen++; try { player && player.destroy(); } catch {} try { pre && pre.p && pre.p.destroy(); } catch {} pre = null; });
 
   // 링크로 바로 들어와서 아직 페이지를 한 번도 누르지 않았다면, 브라우저가 소리를 막으므로 한 번 누르게 함
   if (navigator.userActivation && !navigator.userActivation.hasBeenActive) $("#gate").hidden = false;
@@ -1358,6 +1399,7 @@ async function viewRoom(code) {
       try {
         const st = room?.state || {};
         if (st.phase !== "playing" || now() > st.startAt + clipMs()) return;
+        if (inAd) return;
         const blocked = player.isMuted() || player.getPlayerState() !== YT.PlayerState.PLAYING;
         $("#soundAlert").hidden = !blocked;
       } catch {}
@@ -1370,6 +1412,7 @@ async function viewRoom(code) {
     const el = Math.max(0, now() - startAt);
     clearTimeout(stopT); clearTimeout(segT);
     if (el >= clip) { try { player.pauseVideo(); } catch {} return; }
+    if (inAd) return;   // 광고가 끝나면 setAd(false)가 다시 불러 줌
     player.unMute();
     player.setVolume(vol());
     const seg = segOf(song);
@@ -1401,23 +1444,117 @@ async function viewRoom(code) {
     if (now() - startAt >= clipMs()) { try { player.stopVideo(); } catch {} return; }
     // 새 1×1 플레이어를 만들고, 카운트다운 동안 음소거 상태로 미리 불러와 둠
     curVideo = null;
-    const p = await freshPlayer();
-    if (!p || key !== lastKey) return;
-    p.mute();
-    p.loadVideoById({ videoId: song.videoId, startSeconds: startOf(song) });
-    curVideo = song.videoId;
-    startT = setTimeout(() => playFrom(song, startAt), Math.max(0, startAt - now()));
+    let p = adoptPre(song);
+    if (p) { p.mute(); curVideo = song.videoId; }
+    else {
+      p = await freshPlayer();
+      if (!p || key !== lastKey) return;
+      p.mute();
+      p.loadVideoById({ videoId: song.videoId, startSeconds: startOf(song) });
+      curVideo = song.videoId;
+    }
+    armStart();
+    prefetch(room.state.index + 1).catch(console.error);   // 이미 모두 준비된 상태(늦게 들어온 경우 등)면 바로 예약
   }
 
   function playReveal(song) {
     const s = startOf(song);
     if (curVideo === song.videoId) player.seekTo(s, true);
     else { player.loadVideoById({ videoId: song.videoId, startSeconds: s }); curVideo = song.videoId; }
+    if (inAd) { $("#adShield").hidden = false; return; }
     player.unMute();
     player.setVolume(vol());
     player.playVideo();
     const seg = segOf(song);   // 구간 문제는 정답 공개 때도 그 구간만 한 번
     if (seg) stopT = setTimeout(() => { try { player.pauseVideo(); } catch {} }, seg.len);
+  }
+
+  // ----- 광고 감지 -----
+  // YouTube API는 광고 여부를 알려 주지 않아서, "재생 중인데 본 영상 시간이 멈춰 있으면 광고"로 판단함
+  function setAd(on) {
+    if (on === inAd) return;
+    inAd = on;
+    const st = room?.state || {};
+    $("#adNote").hidden = !(on && st.phase === "playing" && !st.wait);
+    $("#adShield").hidden = !(on && st.phase === "reveal");
+    if (on) { try { player.mute(); } catch {} $("#soundAlert").hidden = true; return; }
+    // 광고 끝 → 지금 시점에 맞춰 이어서 재생
+    const song = room?.songs?.[st.index];
+    try {
+      if (st.phase === "playing" && song && now() >= st.startAt) playFrom(song, st.startAt);
+      else if (st.phase === "reveal" && song) { player.seekTo(startOf(song), true); player.unMute(); player.setVolume(vol()); player.playVideo(); }
+    } catch (e) { console.error(e); }
+  }
+  function resetAd() {   // 새 플레이어를 만들 때: 이전 광고 상태는 버림
+    inAd = false;
+    $("#adNote").hidden = true;
+    $("#adShield").hidden = true;
+  }
+  function watchAds() {
+    clearInterval(adWatch);
+    frozen = 0; lastT = null;
+    const ph = room?.state?.phase;
+    $("#adNote").hidden = !(inAd && ph === "playing" && !room?.state?.wait);
+    $("#adShield").hidden = !(inAd && ph === "reveal");
+    adWatch = setInterval(() => {
+      const st = room?.state || {};
+      if (st.phase !== "playing" && st.phase !== "reveal") return;
+      let state, t;
+      try { state = player.getPlayerState(); t = player.getCurrentTime(); } catch { return; }
+      const song = room?.songs?.[st.index];
+      let vid = null;
+      try { vid = player.getVideoData()?.video_id; } catch {}
+      const otherVideo = !!(vid && song && vid !== song.videoId);   // 광고 영상이 재생 중
+      const advancing = lastT !== null && Math.abs(t - lastT) >= 0.05;
+      if (state === YT.PlayerState.PLAYING && (otherVideo || (lastT !== null && !advancing))) frozen++;
+      else if (state === YT.PlayerState.PLAYING) frozen = 0;
+      lastT = t;
+      // 대기 중: 진짜 노래가 1초 가까이 흐르면 준비 완료
+      if (st.phase === "playing" && st.wait) {
+        goodTicks = state === YT.PlayerState.PLAYING && advancing && !otherVideo && !inAd ? goodTicks + 1 : 0;
+        if (goodTicks >= 2) markReady();
+      }
+      if (!inAd && frozen >= 3) setAd(true);          // 약 1초 동안 시간이 안 흐르면 광고
+      else if (inAd && frozen === 0 && state === YT.PlayerState.PLAYING) setAd(false);
+    }, 350);
+  }
+  onCleanup(() => clearInterval(adWatch));
+
+  // ----- 모두 준비될 때까지 기다리기 -----
+  // 각자 영상을 소리 없이 미리 틀어 보고, 광고가 아니라 진짜 노래가 흐르기 시작하면 "준비됨"을 보냄
+  let readySent = null, goodTicks = 0;
+  function markReady() {
+    const st = room?.state || {};
+    if (st.phase !== "playing" || !st.wait || readySent === st.playId) return;
+    readySent = st.playId;
+    set(ref(db, `${base}/ready/${uid}`), st.playId).catch(console.error);
+  }
+  const notReady = st => onlineIds().filter(id => (room.ready || {})[id] !== st.playId);
+  let goTry = "", goTryAt = 0;
+  function tryGo() {
+    const st = room?.state || {};
+    if (st.phase !== "playing" || !st.wait) return;
+    const all = notReady(st).length === 0;
+    const timeout = now() >= (st.waitSince || 0) + WAIT_MAX;
+    if (!all && !timeout) return;
+    if (goTry === st.playId && Date.now() - goTryAt < 2000) return;
+    goTry = st.playId; goTryAt = Date.now();
+    runTransaction(stateRef, s => {
+      if (!s || s.phase !== "playing" || s.playId !== st.playId || !s.wait) return;
+      return { ...s, wait: null, waitSince: null, startAt: now() + 3000 };
+    }).catch(console.error);
+  }
+  // 대기가 끝나 진짜 시작 시각이 정해지면 그 시각에 재생 예약
+  let armedFor = null;
+  function armStart() {
+    const st = room?.state || {};
+    const song = room?.songs?.[st.index];
+    if (st.phase !== "playing" || st.wait || !song || curVideo !== song.videoId) return;
+    const k = st.playId + "|" + st.startAt;
+    if (armedFor === k) return;
+    armedFor = k;
+    clearTimeout(startT);
+    startT = setTimeout(() => playFrom(song, st.startAt), Math.max(0, st.startAt - now()));
   }
 
   let lastKey = null;
@@ -1427,7 +1564,9 @@ async function viewRoom(code) {
     if (key === lastKey) return;
     lastKey = key;
     clearPlayTimers();
+    armedFor = null; goodTicks = 0;
     $("#soundAlert").hidden = true;
+    watchAds();
     const song = room.songs?.[st.index];
     // 듣는 중에는 플레이어를 1×1px로 숨기고(새 곡을 불러오기 전에 줄임), 정답 공개 때 다시 크게 보여 줌
     $("#ytBox").classList.toggle("tiny", st.phase === "playing");
@@ -1475,11 +1614,14 @@ async function viewRoom(code) {
     renderStage();
     renderControls();
     handlePlayback();
+    armStart();
+    tryGo();
     autoAdvance();
   }));
   const tick = setInterval(() => {
     if (!room) return;
     if (["playing", "reveal"].includes(room.state?.phase)) { renderStage(); renderControls(); }
+    tryGo();
     autoAdvance();
     autoHost();
   }, 250);
@@ -1491,8 +1633,16 @@ async function viewRoom(code) {
   const pointsAt = el => { const [h1, h2] = hintAt(); return el < h1 ? 3 : el < h2 ? 2 : 1; };
   const myName = () => getName() || "익명";
   const onlineIds = () => Object.entries(room.players || {}).filter(([, p]) => p.online).map(([id]) => id);
-  const needVotes = () => Math.floor(onlineIds().length / 2) + 1;   // 과반수
-  const voteCount = st => { const on = new Set(onlineIds()); return Object.keys(st?.skips || {}).filter(id => on.has(id)).length; };
+  // 스킵 투표할 수 있는 사람: 접속 중이고, 듣는 중일 때는 아직 못 맞힌 사람만
+  const solvedMe = st => st?.phase === "playing" && !!st.solved?.[uid];
+  const voters = st => onlineIds().filter(id => !(st?.phase === "playing" && st.solved?.[id]));
+  const needVotes = st => Math.floor(voters(st).length / 2) + 1;   // 과반수
+  const voteCount = st => { const on = new Set(voters(st)); return Object.keys(st?.skips || {}).filter(id => on.has(id)).length; };
+
+  // 새 곡 상태: 모두가 광고·로딩을 끝낼 때까지 기다렸다가(wait) 동시에 3초 카운트다운 시작
+  // startAt은 기다리는 동안 임시로 먼 미래 값(최대 대기 + 3초)을 넣어 둠
+  const WAIT_MAX = 10000;
+  const newPlaying = i => ({ phase: "playing", index: i, startAt: now() + WAIT_MAX + 3000, playId: rid(), wait: true, waitSince: now() });
 
   // 다음 단계 계산: 듣는 중 → 정답 공개 → 다음 곡(또는 결과)
   function nextState(s) {
@@ -1500,7 +1650,7 @@ async function viewRoom(code) {
     if (s.phase === "playing") return { ...s, phase: "reveal", revealAt: now(), skips: null };
     if (s.phase === "reveal") {
       const i = s.index + 1;
-      return i < total ? { phase: "playing", index: i, startAt: now() + 3000, playId: rid() } : { phase: "end" };
+      return i < total ? newPlaying(i) : { phase: "end" };
     }
     return undefined;
   }
@@ -1513,7 +1663,7 @@ async function viewRoom(code) {
     if (st.phase === "playing") due = now() >= st.startAt + clipMs() + 300;
     else if (st.phase === "reveal") due = now() >= (st.revealAt || 0) + REVEAL_MS;
     else return;
-    if (!due && voteCount(st) < needVotes()) return;
+    if (!due && (st.phase !== "playing" || voteCount(st) < needVotes(st))) return;
     const key = [st.phase, st.index, st.playId].join("|");
     if (key === lastTry && Date.now() - lastTryAt < 2000) return;
     lastTry = key; lastTryAt = Date.now();
@@ -1684,6 +1834,15 @@ async function viewRoom(code) {
     } else if (st.phase === "playing" && song) {
       const t = now(), clip = clipMs(), el = t - st.startAt;
       const step = `<span class="step">${st.index + 1} / ${total}</span>`;
+      if (st.wait) {
+        const wait = notReady(st);
+        const left = Math.max(0, Math.ceil(((st.waitSince || 0) + WAIT_MAX - t) / 1000));
+        const names = wait.map(id => esc(room.players?.[id]?.name || "?")).join(", ");
+        setStage(`<div class="cv-sub">${st.index + 1}번째</div><div class="big">⏳</div>`,
+          `${step}<div>모두 준비되면 같이 시작해요 · ${onlineIds().length - wait.length}/${onlineIds().length}</div>
+           ${wait.length ? `<div class="orig">광고 또는 불러오는 중: ${names} · 최대 ${left}초</div>` : ""}`);
+        return;
+      }
       if (el < 0) {
         setStage(`<div class="cv-sub">${st.index + 1}번째</div><div class="big">${Math.ceil(-el / 1000)}</div>`,
           `${step}<div>곧 시작해요</div>`);
@@ -1753,16 +1912,24 @@ async function viewRoom(code) {
   function renderControls(force = false) {
     const st = room.state || { phase: "lobby" };
     const host = isHost();
-    const votes = voteCount(st), need = needVotes(), mine = !!st.skips?.[uid];
-    const sig = JSON.stringify([st.phase, st.index, room.songs?.length, host, room.settings, votes, need, mine]);
+    const votes = voteCount(st), need = needVotes(st), mine = !!st.skips?.[uid], done = solvedMe(st);
+    const revealLeft = st.phase === "reveal" ? Math.max(0, Math.ceil(((st.revealAt || 0) + REVEAL_MS - now()) / 1000)) : 0;
+    const sig = JSON.stringify([st.phase, st.index, room.songs?.length, host, room.settings, votes, need, mine, done, revealLeft]);
     if (!force && sig === lastCtrlSig) return;
     lastCtrlSig = sig;
     const el = $("#controls");
 
-    if (st.phase === "playing" || st.phase === "reveal") {
+    if (st.phase === "reveal") {   // 정답 공개는 끝까지 감상 (스킵 없음)
       el.innerHTML = `<div class="ctl">
-        <button class="${mine ? "btn" : "btn-secondary"}" data-act="skip">⏭ ${mine ? "스킵 투표 취소" : st.phase === "playing" ? "스킵 투표 (정답 보기)" : "스킵 투표 (다음 곡)"} · ${votes}/${need}</button>
-        ${host ? `<button class="btn-secondary" data-act="force">⏩ 방장 강제 스킵 <kbd>P</kbd></button>` : ""}
+        <button class="btn-secondary" disabled>🎵 감상 중 · ${revealLeft}초 뒤 다음 곡</button>
+      </div>`;
+      return;
+    }
+    if (st.phase === "playing") {
+      el.innerHTML = `<div class="ctl">
+        ${done ? `<button class="btn-secondary" disabled>✅ 맞혔어요 · 이번 곡은 스킵할 수 없어요 · ${votes}/${need}</button>`
+          : `<button class="${mine ? "btn" : "btn-secondary"}" data-act="skip">⏭ ${mine ? "스킵 투표 취소" : st.phase === "playing" ? "스킵 투표 (정답 보기)" : "스킵 투표 (다음 곡)"} · ${votes}/${need}</button>`}
+        ${host && !done ? `<button class="btn-secondary" data-act="force">⏩ 방장 강제 스킵 <kbd>P</kbd></button>` : ""}
         <span class="hint" style="align-self:center"><kbd>K</kbd> 로도 투표 · 채팅은 <kbd>Enter</kbd>나 클릭으로 열어요</span>
       </div>`;
       return;
@@ -1820,6 +1987,8 @@ async function viewRoom(code) {
   async function forceSkip() {
     const st = room?.state || {};
     if (!isHost() || (st.phase !== "playing" && st.phase !== "reveal")) return;
+    if (solvedMe(st)) return toast("이미 맞혔어요! 이번 곡은 스킵할 수 없어요");
+    if (st.phase === "reveal") return toast("정답 공개 중에는 스킵할 수 없어요");
     await runTransaction(stateRef, s => {
       if (!s || s.phase !== st.phase || s.index !== st.index) return;
       return nextState(s);
@@ -1828,10 +1997,13 @@ async function viewRoom(code) {
 
   async function skipVote() {
     const st = room.state || {};
-    const on = new Set(onlineIds());
-    const need = needVotes();
+    if (solvedMe(st)) return toast("이미 맞혔어요! 이번 곡은 스킵할 수 없어요");
+    if (st.phase === "reveal") return toast("정답 공개 중에는 스킵할 수 없어요");
+    const on = new Set(voters(st));
+    const need = needVotes(st);
     await runTransaction(stateRef, s => {
-      if (!s || (s.phase !== "playing" && s.phase !== "reveal") || s.index !== st.index) return;
+      if (!s || s.phase !== "playing" || s.index !== st.index) return;
+      if (s.solved?.[uid]) return;
       s.skips = s.skips || {};
       if (s.skips[uid]) delete s.skips[uid]; else s.skips[uid] = true;
       const votes = Object.keys(s.skips).filter(id => on.has(id)).length;
@@ -1864,7 +2036,7 @@ async function viewRoom(code) {
       sid: x.sid, videoId: x.videoId, start: x.start || 0, end: x.end || 0, gap: x.gap || 0, len: x.len || 0, rf: +(0.2 + Math.random() * 0.45).toFixed(3),
       answer: x.answer, alts: x.alts || "", orig: x.orig || "", artist: x.artist || ""
     }));
-    const updates = { songs, feed: null, state: { phase: "playing", index: 0, startAt: now() + 3000, playId: rid() } };
+    const updates = { songs, feed: null, ready: null, state: newPlaying(0) };
     for (const id of Object.keys(room.players || {})) updates[`players/${id}/score`] = 0;
     await update(roomRef, updates);
     await push(ref(db, base + "/feed"), { t: "sys", text: `게임 시작! 총 ${songs.length}곡이에요` });
@@ -1878,7 +2050,8 @@ async function viewRoom(code) {
     input.value = "";
     const st = room.state || {};
     const song = room.songs?.[st.index];
-    const correct = st.phase === "playing" && song && isCorrect(text, song);
+    if (st.phase === "playing" && song && now() < st.startAt && isCorrect(text, song)) return toast("아직 노래가 시작하지 않았어요");
+    const correct = st.phase === "playing" && song && now() >= st.startAt && isCorrect(text, song);
 
     if (correct && isHintMode()) {
       if (st.solved?.[uid]) return toast("이미 맞혔어요! 정답은 채팅에 올라가지 않아요");
