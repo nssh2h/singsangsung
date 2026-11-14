@@ -87,14 +87,19 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .mini-cover{flex:none;width:150px;aspect-ratio:16/9;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;text-shadow:0 2px 6px rgba(0,0,0,.2);box-shadow:0 4px 12px rgba(0,0,0,.12)}
 
 /* 방 화면 */
-.room-grid{display:grid;grid-template-columns:1fr 290px;gap:20px;align-items:start;margin-top:-44px}
-@media (max-width:820px){ .room-grid{grid-template-columns:1fr} }
+.container.wide{max-width:1400px}
+.room-grid{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;grid-template-areas:"side main chat";gap:20px;align-items:start;margin-top:-44px}
+.room-grid .r-main{grid-area:main}.room-grid .r-side{grid-area:side}.room-grid .r-chat{grid-area:chat}
+.r-chat .feed{max-height:min(560px,calc(100vh - 260px))}
+@media (max-width:1100px){ .room-grid{grid-template-columns:minmax(0,1fr) 290px;grid-template-rows:auto 1fr;grid-template-areas:"main side" "main chat"} }
+@media (max-width:820px){ .room-grid{grid-template-columns:1fr;grid-template-areas:"main" "chat" "side"} .r-chat .feed{max-height:240px} }
 .room-grid .panel{margin-top:0;margin-bottom:16px}
 .video-box{position:relative;aspect-ratio:16/9;background:#14101f;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:16px}
 .video-box iframe,.video-box > div:first-child{position:absolute;inset:0;width:100%;height:100%}
 /* 듣는 중: 플레이어를 1×1px로 숨김 */
-.video-box iframe.bg{left:-9999px!important;top:-9999px!important;right:auto!important;bottom:auto!important;width:1px!important;height:1px!important;opacity:.01;border:0}
-.video-box.tiny iframe{border:0;inset:auto;left:-9999px;top:-9999px;width:1px!important;height:1px!important;opacity:.01}
+/* 숨은 플레이어는 화면 밖(-9999px)에 두면 브라우저가 '안 보이는 음소거 영상'으로 보고 멈춰 버려서, 화면 안 왼쪽 아래 1px에 거의 투명하게 둠 */
+.video-box iframe.bg{position:fixed!important;left:0!important;bottom:0!important;top:auto!important;right:auto!important;width:1px!important;height:1px!important;opacity:.01;border:0;pointer-events:none}
+.video-box.tiny iframe{position:fixed;border:0;inset:auto;left:0;bottom:0;width:1px!important;height:1px!important;opacity:.01;pointer-events:none}
 .cover{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#3b9ff0,#7cc4fa);color:#fff;text-align:center;padding:16px}
 .cover.hide{display:none}
@@ -1226,29 +1231,32 @@ async function viewRoom(code) {
     <p id="roomSub"></p>
     <div class="room-code">방 코드 <b>${esc(code)}</b><button id="copy">초대 링크 복사</button></div>
   </header>
-  <div class="container">
+  <div class="container wide">
     <div class="room-grid">
-      <div>
+      <div class="r-main">
         <div class="video-box" id="ytBox"><div id="yt"></div><div class="cover" id="cover"></div><div class="ad-shield" id="adShield" hidden>📺 광고가 끝나면 영상이 나와요</div></div>
         <div class="ad-note" id="adNote" hidden>🔇 YouTube 광고 중이라 소리를 껐어요. 광고가 끝나면 다른 사람들과 같은 위치부터 이어서 들려요</div>
         <div class="panel status" id="status"></div>
         <button class="sound-alert" id="soundAlert" hidden>🔇 소리가 안 나오나요? 여기를 눌러 주세요</button>
         <div id="controls"></div>
-        <div class="panel">
-          <div class="row nowrap">
-            <input type="text" id="gIn" class="grow" placeholder="Enter나 클릭으로 채팅 · K로 스킵 투표" maxlength="60" autocomplete="off">
-            <button class="btn" id="gSend">보내기</button>
-          </div>
-          <div id="feed" class="feed"></div>
-        </div>
       </div>
-      <aside>
+      <aside class="r-side">
         <div class="panel"><h3>🏆 점수판</h3><ul id="players" class="players"></ul></div>
         <div class="panel">
           <h3>🔊 볼륨</h3>
           <input type="range" id="vol" min="0" max="100">
           <p class="hint">노래가 안 들리면 아래 버튼을 눌러 주세요.</p>
           <button class="btn-secondary" id="resync" style="margin-top:10px">🔄 소리 다시 맞추기</button>
+        </div>
+      </aside>
+      <aside class="r-chat">
+        <div class="panel">
+          <h3>💬 채팅</h3>
+          <div class="row nowrap">
+            <input type="text" id="gIn" class="grow" placeholder="Enter로 채팅 · K 스킵 투표" maxlength="60" autocomplete="off">
+            <button class="btn" id="gSend">보내기</button>
+          </div>
+          <div id="feed" class="feed"></div>
         </div>
       </aside>
     </div>
@@ -1520,6 +1528,10 @@ async function viewRoom(code) {
       if (st.phase === "playing" && st.wait) {
         goodTicks = state === YT.PlayerState.PLAYING && advancing && !otherVideo && !inAd ? goodTicks + 1 : 0;
         if (goodTicks >= 2) markReady();
+        // 브라우저가 멈춰 둔 경우(일시정지·불러오기만 된 상태)엔 다시 틀어 봄
+        else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.CUED || state === -1) { try { player.playVideo(); } catch {} }
+        // 미리 틀어 둔 영상이 이미 끝까지 갔거나, 광고 없이 본 영상이 멈춰 있으면 그것도 준비된 것
+        if (!otherVideo && !inAd && t > 0.5 && (state === YT.PlayerState.ENDED || state === YT.PlayerState.PAUSED)) markReady();
       }
       if (!inAd && frozen >= 3) setAd(true);          // 약 1초 동안 시간이 안 흐르면 광고
       else if (inAd && frozen === 0 && state === YT.PlayerState.PLAYING) setAd(false);
@@ -2110,7 +2122,7 @@ async function viewRoom(code) {
   // 채팅은 Enter로만 시작: Enter → 채팅 열림 → 입력 → Enter로 보내고 닫힘 (빈 칸에서 Enter나 Esc도 닫힘)
   // 채팅이 닫혀 있을 때 K = 스킵 투표. 휴대폰은 Enter 키가 없으니 채팅칸을 누르면 열림.
   const gIn = $("#gIn");
-  const PH_CLOSED = "Enter나 클릭으로 채팅 · K로 스킵 투표";
+  const PH_CLOSED = "Enter로 채팅 · K 스킵 투표";
   const PH_OPEN = "정답이나 채팅을 입력하고 Enter";
   let chatOpen = false;
   const openChat = () => {
