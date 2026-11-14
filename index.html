@@ -31,6 +31,9 @@ a.link{color:var(--primary-hover);text-decoration:underline}
 .room-code button{border:none;border-radius:999px;background:#fff;color:var(--badge-text);font:inherit;font-size:.8rem;font-weight:bold;padding:4px 12px;cursor:pointer}
 
 .container{max-width:1100px;margin:0 auto;padding:20px}
+/* 큰 화면에선 전체 UI를 조금 키움 */
+@media (min-width:1500px){ body{zoom:1.12} }
+@media (min-width:2200px){ body{zoom:1.25} }
 .container.narrow{max-width:760px}
 .panel{background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--line);box-shadow:0 4px 12px rgba(0,0,0,.05);margin-top:20px}
 .panel.lift{margin-top:-44px}
@@ -237,7 +240,7 @@ function esc(s) {
 // 정답 비교용: 소문자로, 띄어쓰기·기호 제거
 function norm(s) {
   return String(s ?? "").normalize("NFKC").toLowerCase()
-    .replace(/[^0-9a-zㄱ-ㆎ가-힣぀-ヿ一-鿿]/g, "");
+    .replace(/[^0-9a-z\u1100-\u11ffㄱ-ㆎ가-힣぀-ヿ一-鿿]/g, "");
 }
 
 function isCorrect(text, song) {
@@ -2201,7 +2204,8 @@ async function viewRoom(code) {
     const fitChat = () => {
       if (!chatPanel?.isConnected) { window.removeEventListener("resize", fitChat); return; }
       if (window.innerWidth <= 820) { chatPanel.classList.remove("fit"); chatPanel.style.height = ""; return; }
-      const h = statusEl.getBoundingClientRect().bottom - chatPanel.getBoundingClientRect().top;
+      const z = parseFloat(getComputedStyle(document.body).zoom) || 1;
+      const h = (statusEl.getBoundingClientRect().bottom - chatPanel.getBoundingClientRect().top) / z;
       if (h > 200) { chatPanel.classList.add("fit"); chatPanel.style.height = h + "px"; }
     };
     if (window.ResizeObserver && rMain) new ResizeObserver(fitChat).observe(rMain);
