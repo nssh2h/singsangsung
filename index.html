@@ -1255,6 +1255,7 @@ async function viewRoom(code) {
           <input type="range" id="vol" min="0" max="100">
           <p class="hint">노래가 안 들리면 아래 버튼을 눌러 주세요.</p>
           <button class="btn-secondary" id="resync" style="margin-top:10px">🔄 소리 다시 맞추기</button>
+          <button class="btn-secondary" id="copyLog" style="margin-top:6px;font-size:12px;padding:6px 10px">🐞 소리 문제 기록 복사</button>
         </div>
       </aside>
       <aside class="r-chat">
@@ -1307,9 +1308,31 @@ async function viewRoom(code) {
   let room = null;
   let curVideo = null;
   // 곡마다 1×1px 플레이어를 새로 만들어서 씀 (처음부터 아주 작은 플레이어로 불러와야 광고가 잘 안 붙음)
-  const onPlayErr = e => { toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); markReady(); };
+  const onPlayErr = e => { dbg("ERROR 유튜브 오류 코드=" + (e?.data ?? "?")); toast(ytErrorText(e) + " · 스킵 투표로 넘어갈 수 있어요"); logPlayError(e); markReady(); };
+  // ----- 소리 문제 기록 (디버그 로그) -----
+  // 곡마다 플레이어 상태를 1초 간격으로 적어 두고, '기록 복사' 버튼으로 복사해서 보여 줄 수 있음. 새로고침해도 마지막 기록은 남음
+  let dbgLines = [];
+  try { dbgLines = JSON.parse(localStorage.getItem("h2hLog") || "[]"); } catch {}
+  let dbgSaveT = null;
+  function dbg(msg) {
+    const d = new Date();
+    const ts = d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0");
+    dbgLines.push(ts + " " + msg);
+    if (dbgLines.length > 3000) dbgLines.splice(0, dbgLines.length - 3000);
+    if (!dbgSaveT) dbgSaveT = setTimeout(() => { dbgSaveT = null; try { localStorage.setItem("h2hLog", JSON.stringify(dbgLines)); } catch {} }, 3000);
+  }
+  const stName = s => ({ "-1": "시작전", 0: "끝남", 1: "재생", 2: "일시정지", 3: "버퍼링", 5: "대기(cued)" })[s] ?? String(s);
+  function pSnap(p = player) {
+    if (!p) return "플레이어 없음";
+    const g = f => { try { return f(); } catch { return "?"; } };
+    return `상태=${g(() => stName(p.getPlayerState()))} 시간=${g(() => (+p.getCurrentTime()).toFixed(2))} 영상=${g(() => p.getVideoData()?.video_id || "?")} 음소거=${g(() => p.isMuted() ? "O" : "X")} 볼륨=${g(() => p.getVolume())}`;
+  }
+  dbg(`==== 방 ${code} 입장 · ${navigator.userAgent}`);
+  const onVis = () => dbg("탭 " + (document.hidden ? "숨김(다른 탭/최소화)" : "다시 보임"));
+  document.addEventListener("visibilitychange", onVis);
+  onCleanup(() => { document.removeEventListener("visibilitychange", onVis); try { localStorage.setItem("h2hLog", JSON.stringify(dbgLines)); } catch {} });
   let playerGen = 0;
-  let inAd = false, adWatch = null, frozen = 0, lastT = null;
+  let inAd = false, adWatch = null, frozen = 0, lastT = null, dbgTick = 0;
   let ytSeq = 0;
   // 플레이어 칸 하나 만들기 (bg = 다음 곡을 미리 틀어 두는 숨은 플레이어)
   async function makePlayer(onError, bg) {
@@ -1471,6 +1494,7 @@ async function viewRoom(code) {
         if (st.phase !== "playing" || now() > st.startAt + clipMs()) return;
         if (inAd) return;
         const blocked = player.isMuted() || player.getPlayerState() !== YT.PlayerState.PLAYING;
+        if (blocked) dbg("소리 확인 실패 → '소리 켜기' 안내 표시 · " + pSnap());
         $("#soundAlert").hidden = !blocked;
       } catch {}
     }, 1500);
@@ -1481,6 +1505,7 @@ async function viewRoom(code) {
     const clip = clipMs();
     const el = Math.max(0, now() - startAt);
     clearTimeout(stopT); clearTimeout(segT);
+    dbg(`재생 시작 지시 · 경과=${(el / 1000).toFixed(2)}초 광고중=${inAd ? "O" : "X"} · ${pSnap()}`);
     if (el >= clip) { try { player.pauseVideo(); } catch {} return; }
     if (inAd) return;   // 광고가 끝나면 setAd(false)가 다시 불러 줌
     player.unMute();
@@ -1515,6 +1540,7 @@ async function viewRoom(code) {
     // 새 1×1 플레이어를 만들고, 카운트다운 동안 음소거 상태로 미리 불러와 둠
     curVideo = null;
     let p = adoptPre(song);
+    dbg(p ? "미리 틀어 둔 플레이어 사용 · " + pSnap(p) : "새 플레이어로 불러옴");
     if (p) { p.mute(); curVideo = song.videoId; }
     else {
       p = await freshPlayer();
@@ -1543,6 +1569,7 @@ async function viewRoom(code) {
   // YouTube API는 광고 여부를 알려 주지 않아서, "재생 중인데 본 영상 시간이 멈춰 있으면 광고"로 판단함
   function setAd(on) {
     if (on === inAd) return;
+    dbg((on ? "광고 감지" : "광고 끝") + " · " + pSnap());
     inAd = on;
     const st = room?.state || {};
     $("#adNote").hidden = !(on && st.phase === "playing" && !st.wait);
@@ -1579,6 +1606,10 @@ async function viewRoom(code) {
       if (state === YT.PlayerState.PLAYING && (otherVideo || (lastT !== null && !advancing))) frozen++;
       else if (state === YT.PlayerState.PLAYING) frozen = 0;
       lastT = t;
+      if (++dbgTick % 3 === 0) {
+        const exp = st.phase === "playing" && !st.wait && st.startAt ? ((now() - st.startAt) / 1000).toFixed(1) : "-";
+        dbg(`  · ${st.wait ? "대기" : st.phase === "reveal" ? "공개" : "듣기"} 경과=${exp} 광고=${inAd ? "O" : "X"} 다른영상=${otherVideo ? "O" : "X"} ${pSnap()}`);
+      }
       // 대기 중: 진짜 노래가 1초 가까이 흐르면 준비 완료
       if (st.phase === "playing" && st.wait) {
         goodTicks = state === YT.PlayerState.PLAYING && advancing && !otherVideo && !inAd ? goodTicks + 1 : 0;
@@ -1601,6 +1632,7 @@ async function viewRoom(code) {
     const st = room?.state || {};
     if (st.phase !== "playing" || !st.wait || readySent === st.playId) return;
     readySent = st.playId;
+    dbg("준비 완료 보냄 · " + pSnap());
     set(ref(db, `${base}/ready/${uid}`), st.playId).catch(console.error);
   }
   const notReady = st => onlineIds().filter(id => (room.ready || {})[id] !== st.playId);
@@ -1637,6 +1669,7 @@ async function viewRoom(code) {
     const key = [st.phase, st.index, st.playId].join("|");
     if (key === lastKey) return;
     lastKey = key;
+    { const sg = room.songs?.[st.index]; dbg(`---- 단계=${st.phase} ${typeof st.index === "number" ? st.index + 1 + "번째" : ""} ${sg ? sg.answer + " (" + sg.videoId + ")" : ""} 대기=${st.wait ? "O" : "X"} 볼륨설정=${vol()}`); }
     clearPlayTimers();
     armedFor = null; goodTicks = 0;
     $("#soundAlert").hidden = true;
@@ -1654,6 +1687,7 @@ async function viewRoom(code) {
   // 버튼을 누른 순간(사용자 동작)에 다시 재생하면 브라우저가 소리를 허용해 줌
   function resync(silent = false) {
     const st = room?.state || {};
+    dbg((silent ? "자동" : "버튼") + " 소리 다시 맞추기 · " + pSnap());
     const song = room?.songs?.[st.index];
     $("#soundAlert").hidden = true;
     try {
@@ -1670,6 +1704,18 @@ async function viewRoom(code) {
     } catch (e) { console.error(e); }
   }
   $("#resync").onclick = () => resync();
+  $("#copyLog").onclick = async () => {
+    dbg("기록 복사함");
+    const text = dbgLines.join("\n");
+    try { await navigator.clipboard.writeText(text); toast(`기록 ${dbgLines.length}줄을 복사했어요. 채팅이 아니라 Claude에게 붙여넣어 주세요`); }
+    catch {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.cssText = "position:fixed;inset:10%;z-index:99;width:80%;height:80%";
+      document.body.append(ta); ta.select();
+      ta.onblur = () => ta.remove();
+      toast("자동 복사가 안 돼서 창으로 띄웠어요. Ctrl+C로 복사해 주세요");
+    }
+  };
   $("#soundAlert").onclick = () => resync();
 
   // ----- 방 데이터 구독 -----
