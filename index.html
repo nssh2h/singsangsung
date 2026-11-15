@@ -130,6 +130,16 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .players .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .players .sc{font-weight:800;color:var(--primary)}
 .players li.off{opacity:.4}
+/* 대기 화면: 다음 곡 미리 불러오기 진행 게이지 */
+.players .nmw{flex:1;min-width:0;display:flex;flex-direction:column}
+.players .nmw .nm{display:block}
+.pre-g{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:.74rem;font-weight:bold;color:var(--primary)}
+.pre-g[hidden]{display:none}
+.pre-g .pct{display:inline-flex;align-items:flex-end;font-variant-numeric:tabular-nums}
+.pre-g.full{color:#2fb36b}
+.pre-g b{display:inline-block;width:70px;height:6px;border-radius:3px;background:#e6ebf2;overflow:hidden}
+.pre-g b i{display:block;height:100%;background:var(--primary);border-radius:3px;transition:width .4s}
+.pre-g.full b i{background:#2fb36b}
 .feed{max-height:240px;overflow-y:auto;font-size:.9rem;margin-top:12px}
 .feed div{padding:2px 0;word-break:break-all}
 .feed .ok{color:var(--ok);font-weight:bold}
@@ -233,6 +243,43 @@ const firebaseConfig = {
   appId: "1:71824296336:web:ac86b50278c041198a8b15"
 };
 // ============================================================
+
+// ============================================================
+//  YouTube Data API 키 (영상 상태 검사용, 선택)
+//  넣어 두면: 곡 추가할 때·게임 시작할 때 '재생 안 되는 영상'(삭제·비공개·퍼가기 금지·한국 차단·연령 제한)을 미리 걸러 줘요.
+//  비워 두면 검사 없이 지금처럼 동작해요.
+// ============================================================
+const YT_API_KEY = "";
+const isoDur = d => { const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(d || ""); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
+// 영상 여러 개를 한 번에 검사 → Map(영상ID → { ok, why, len }) / 키가 없거나 실패하면 null
+async function ytCheck(ids) {
+  if (!YT_API_KEY) return null;
+  const uniq = [...new Set(ids.filter(Boolean))];
+  const out = new Map();
+  try {
+    for (let i = 0; i < uniq.length; i += 50) {
+      const chunk = uniq.slice(i, i + 50);
+      const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status,contentDetails&id=${chunk.join(",")}&key=${encodeURIComponent(YT_API_KEY)}`);
+      if (!r.ok) { console.warn("YouTube API 오류", r.status, await r.text().catch(() => "")); return null; }
+      const items = new Map(((await r.json()).items || []).map(v => [v.id, v]));
+      for (const id of chunk) {
+        const v = items.get(id);
+        const st = v?.status || {}, cd = v?.contentDetails || {}, rr = cd.regionRestriction || {};
+        const why = !v ? "삭제됐거나 비공개인 영상"
+          : st.privacyStatus === "private" ? "비공개 영상"
+          : st.uploadStatus && st.uploadStatus !== "processed" ? "아직 처리 중이거나 막힌 영상"
+          : st.embeddable === false ? "다른 사이트 재생이 막힌 영상"
+          : (rr.blocked || []).includes("KR") || (rr.allowed && !rr.allowed.includes("KR")) ? "한국에서 못 보는 영상"
+          : cd.contentRating?.ytRating === "ytAgeRestricted" ? "연령 제한 영상"
+          : "";
+        out.set(id, { ok: !why, why, len: v ? isoDur(cd.duration) : 0 });
+      }
+    }
+  } catch (e) { console.warn(e); return null; }
+  return out;
+}
+// 게임에서 뺄 곡: API 검사에서 재생 불가로 걸린 곡만 (영상을 바꾸면 다시 들어감)
+const isBadSong = x => !!(x.chk?.why && x.chk.videoId === x.videoId);
 
 // 장르 칩·장르 입력칸에 기본으로 보여 줄 장르 (자유롭게 고쳐도 돼요)
 const DEFAULT_GENRES = ["종합", "여돌", "남돌", "JPOP", "발라드", "OST", "밴드", "팝송", "게임"];
@@ -817,6 +864,7 @@ async function viewList(pid) {
     </details>
     <div class="panel">
       <h3>곡 목록 <span id="cnt"></span></h3>
+      ${YT_API_KEY ? `<div class="row" style="margin:-4px 0 10px"><button class="btn-secondary" id="chkAll" style="padding:6px 12px">🔍 재생 안 되는 영상 검사</button><span id="chkMsg" class="hint" style="margin:0"></span></div>` : ""}
       <div id="songs" class="hint">불러오는 중…</div>
     </div>` : `
     <div class="panel lift">
@@ -872,7 +920,8 @@ async function viewList(pid) {
   function renderSongs() {
     const arr = Object.entries(songs).sort((a, b) => (a[0] < b[0] ? -1 : 1));
     const errN = arr.filter(([, x]) => x.err).length;
-    $("#cnt").textContent = `· ${arr.length}곡` + (errN ? ` · ⚠ 재생 오류 ${errN}곡` : "");
+    const badN = arr.filter(([, x]) => x.chk?.why && x.chk.videoId === x.videoId).length;
+    $("#cnt").textContent = `· ${arr.length}곡` + (badN ? ` · ⛔ 재생 불가 ${badN}곡` : "") + (errN ? ` · ⚠ 재생 오류 ${errN}곡` : "");
     $("#songs").innerHTML = arr.length ? arr.map(([sid, s], i) => `
       <div class="song">
         <span class="num">${i + 1}</span>
@@ -880,6 +929,7 @@ async function viewList(pid) {
         <div class="txt">
           <b>${esc(s.answer)}</b>
           ${s.alts ? `<span class="sub">다른 정답: ${esc(s.alts)}</span>` : ""}
+          ${s.chk?.why && s.chk.videoId === s.videoId ? `<span class="sub err-line">⛔ 재생 불가: ${esc(s.chk.why)} (게임에서 자동으로 빠져요)</span>` : ""}
           ${s.err ? `<span class="sub err-line">⚠ 재생 오류 ${s.err.count || 1}회 (오류 ${esc(s.err.code)}, ${s.err.ua === "mobile" ? "폰" : "PC"}, ${fmtDate(s.err.at)})</span>` : ""}
           <span class="sub">${s.end ? `${fmtT(s.start)}~${fmtT(s.end)} 구간 · ${s.gap || 2}초 쉬고 반복` : s.start > 0 ? fmtTime(s.start) + "부터" : "랜덤 구간"} ·
             <a class="link" href="https://youtu.be/${esc(s.videoId)}${s.start > 0 ? "?t=" + Math.floor(s.start) : ""}" target="_blank" rel="noopener">${esc([s.orig || s.title, s.artist].filter(Boolean).join(" · ") || "YouTube")}</a></span>
@@ -983,6 +1033,9 @@ async function viewList(pid) {
     if (p.id !== cur.videoId) { cur.videoId = p.id; cur.title = (await fetchTitle(p.id)).title; }
     let len = 0;
     try { len = Math.floor(pv.getDuration() || 0); } catch {}
+    const ck = (await ytCheck([p.id]))?.get(p.id);
+    if (ck && !ck.ok && !confirm(`이 영상은 ${ck.why}이라 게임에서 재생이 안 될 수 있어요.\n그래도 저장할까요? (저장해도 게임에서는 자동으로 빠져요)`)) return;
+    if (!len && ck?.len) len = ck.len;
     const data = {
       videoId: p.id, answer, alts: cleanAlts($("#alts").value), start: Math.round(start * 10) / 10,
       end: end ? Math.round(end * 10) / 10 : null, gap: end && gap ? gap : null,
@@ -992,8 +1045,9 @@ async function viewList(pid) {
     const wasEdit = !!cur.sid;
     $("#save").disabled = true;
     try {
-      if (wasEdit) await update(ref(db, `playlistSongs/${pid}/${cur.sid}`), { ...data, err: null });
-      else await set(push(songsRef), { ...data, addedAt: serverTimestamp() });
+      const chk = ck && !ck.ok ? { why: ck.why, videoId: p.id, at: Date.now() } : null;
+      if (wasEdit) await update(ref(db, `playlistSongs/${pid}/${cur.sid}`), { ...data, err: null, chk });
+      else await set(push(songsRef), { ...data, chk, addedAt: serverTimestamp() });
       await update(metaRef, { updatedAt: serverTimestamp() });
       resetForm();
       toast(wasEdit ? "수정했어요" : "추가했어요");
@@ -1041,6 +1095,7 @@ async function viewList(pid) {
     let ok = 0;
     const failed = [];
     const updates = {};
+    const lineOf = new Map();
     for (const line of lines) {
       if (my !== viewId) return;
       const parts = line.split("|").map(x => x.trim());
@@ -1061,9 +1116,21 @@ async function viewList(pid) {
       if (len > 0) song.len = Math.floor(len);
       const end = parts[7] ? parseTime(parts[7]) : 0;
       if (end > start) { song.end = end; const g = parseFloat(parts[8]); if (g > 0) song.gap = g; }
-      updates[push(songsRef).key] = song;
+      const key = push(songsRef).key;
+      updates[key] = song;
+      lineOf.set(key, line);
       ok++;
       if (ok % 20 === 0) $("#bulkMsg").textContent = `${ok} / ${lines.length} 준비 중…`;
+    }
+    // 재생 안 되는 영상은 빼고 입력칸에 남김
+    const badLines = [];
+    const ck = ok ? await ytCheck(Object.values(updates).map(x => x.videoId)) : null;
+    if (ck) {
+      for (const [k, x] of Object.entries(updates)) {
+        const c = ck.get(x.videoId);
+        if (c && !c.ok) { badLines.push(`${x.answer} — ${c.why}`); failed.push(lineOf.get(k)); delete updates[k]; ok--; }
+        else if (c?.len && !x.len) x.len = c.len;
+      }
     }
     if (ok) {
       $("#bulkMsg").textContent = `${ok}곡 저장 중…`;
@@ -1071,8 +1138,30 @@ async function viewList(pid) {
       await update(metaRef, { updatedAt: serverTimestamp() });
     }
     $("#bulk").value = failed.join("\n");
-    $("#bulkMsg").textContent = `${ok}곡 추가했어요` + (failed.length ? ` · ${failed.length}줄은 링크나 정답을 확인해 주세요 (입력칸에 남겨 뒀어요)` : "");
+    $("#bulkMsg").textContent = `${ok}곡 추가했어요` + (failed.length ? ` · ${failed.length}줄은 추가하지 않고 입력칸에 남겨 뒀어요` : "")
+      + (badLines.length ? ` · 재생 안 되는 영상 ${badLines.length}곡: ${badLines.join(", ")}` : failed.length ? " (링크나 정답을 확인해 주세요)" : "");
     $("#bulkAdd").disabled = false;
+  };
+
+  // 목록 전체 검사: 재생 안 되는 영상에 표시 (게임에서 자동으로 빠짐)
+  if ($("#chkAll")) $("#chkAll").onclick = async () => {
+    const arr = Object.entries(songs);
+    if (!arr.length) return;
+    $("#chkAll").disabled = true; $("#chkMsg").textContent = "검사 중…";
+    const ck = await ytCheck(arr.map(([, x]) => x.videoId));
+    $("#chkAll").disabled = false;
+    if (!ck) { $("#chkMsg").textContent = "검사하지 못했어요 (API 키·할당량을 확인해 주세요)"; return; }
+    const upd = {};
+    let bad = 0;
+    for (const [sid, x] of arr) {
+      const c = ck.get(x.videoId);
+      if (!c) continue;
+      if (!c.ok) { upd[`${sid}/chk`] = { why: c.why, videoId: x.videoId, at: Date.now() }; bad++; }
+      else if (x.chk) upd[`${sid}/chk`] = null;
+      if (c.len && !x.len) upd[`${sid}/len`] = c.len;
+    }
+    if (Object.keys(upd).length) await update(songsRef, upd);
+    $("#chkMsg").textContent = bad ? `재생 안 되는 영상 ${bad}곡을 찾았어요 (⛔ 표시, 게임에서 자동으로 빠져요)` : "모두 재생 가능해요 👍";
   };
 
   // ----- 문제 설정 -----
@@ -1353,6 +1442,7 @@ async function viewRoom(code) {
     try { p.getIframe().classList.toggle("bg", !!bg); } catch {}
     return p;
   }
+  const MOBILE = matchMedia("(pointer:coarse)").matches;
   async function freshPlayer() {
     const gen = ++playerGen;
     try { player && player.destroy(); } catch {}
@@ -1367,8 +1457,9 @@ async function viewRoom(code) {
   // 지금 곡을 듣는 동안 다음 곡을 숨은 플레이어에서 소리 없이 미리 재생해 둠
   // → 광고가 붙어도 지금 곡 시간 동안 조용히 지나가서, 다음 곡은 기다림 없이 바로 시작
   // 다음 곡 여러 개(PC 10곡, 휴대폰 5곡)를 숨은 플레이어에서 소리 없이 미리 틀어 둠
+  // (휴대폰은 새 플레이어로 바뀔 때 소리가 막힐 수 있음 → 자동 복구가 계속 재시도하고, 안 되면 화면 한 번 누르면 나옴)
   // → 광고가 붙어 있으면 앞 곡들 듣는 동안 조용히 지나감. 광고가 끝나고 진짜 노래가 흐르기 시작하면 바로 멈춰 둠(기기 부담·영상 끝남 방지)
-  const PRE_N = matchMedia("(pointer:coarse)").matches ? 5 : 10;
+  const PRE_N = MOBILE ? 5 : 10;
   const pres = new Map();   // 곡 번호 → { videoId, p, err, done }
   let preBusy = false, preWatch = null;
   const killSlot = sl => { try { sl.p && sl.p.destroy(); } catch {} };
@@ -1387,12 +1478,14 @@ async function viewRoom(code) {
         if (pres.has(i)) continue;
         const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
         pres.set(i, slot);
-        const p = await makePlayer(() => { slot.err = true; }, true);
-        if (pres.get(i) !== slot || my !== viewId) { try { p.destroy(); } catch {} continue; }
-        slot.p = p;
-        p.mute();
-        p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
-        await new Promise(r => setTimeout(r, 1500));   // 한꺼번에 몰아서 부르지 않게 조금씩 띄움
+        // 플레이어 준비를 기다리지 않고 바로 다음 곡도 시작 (0.2초 간격으로 거의 동시에 불러옴)
+        makePlayer(() => { slot.err = true; }, true).then(p => {
+          if (pres.get(i) !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
+          slot.p = p;
+          p.mute();
+          p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
+        }).catch(e => { slot.err = true; console.error(e); });
+        await new Promise(r => setTimeout(r, 200));
       }
     } finally { preBusy = false; }
     // 범위가 그 사이에 바뀌었으면 한 번 더
@@ -1412,6 +1505,21 @@ async function viewRoom(code) {
     }
   }, 400);
   onCleanup(() => clearInterval(preWatch));
+  // 대기 화면: 내 미리 불러오기 진행 상황(광고 넘기고 노래까지 준비된 곡 수)을 점수판 게이지로 공유
+  let preShown = null;
+  const prePub = setInterval(() => {
+    let val = null;
+    if (inLobby()) {
+      const list = preList().slice(0, PRE_N);
+      if (list.length) {
+        let done = 0;
+        list.forEach((song, i) => { const sl = pres.get(i); if (sl && sl.videoId === song.videoId && (sl.done || sl.err)) done++; });
+        val = done + "/" + list.length;
+      }
+    }
+    if (val !== preShown && room?.players?.[uid]) { preShown = val; update(ref(db, `${base}/players/${uid}`), { pre: val }).catch(console.error); }
+  }, 1000);
+  onCleanup(() => clearInterval(prePub));
   // 대기 화면에서부터 앞쪽 곡들(PC 10곡, 휴대폰 5곡)을 미리 틀어 둠 (방장이 정해 둔 곡 순서 기준)
   let lobbyTok = 0, lobbyKey = "";
   async function lobbyPrefetch() {
@@ -1420,7 +1528,7 @@ async function viewRoom(code) {
     if (key === lobbyKey) return;
     lobbyKey = key;
     const tok = ++lobbyTok;
-    await new Promise(r => setTimeout(r, 1200));   // 방장이 문제를 이리저리 바꾸는 중이면 기다렸다가
+    await new Promise(r => setTimeout(r, 500));   // 방장이 문제를 이리저리 바꾸는 중이면 잠깐 기다렸다가
     if (tok !== lobbyTok || my !== viewId || !inLobby()) return;
     await prefetch(0);
   }
@@ -1549,9 +1657,16 @@ async function viewRoom(code) {
     // 새 1×1 플레이어를 만들고, 카운트다운 동안 음소거 상태로 미리 불러와 둠
     curVideo = null;
     let p = adoptPre(song);
-    dbg(p ? "미리 틀어 둔 플레이어 사용 · " + pSnap(p) : "새 플레이어로 불러옴");
+    dbg(p ? "미리 틀어 둔 플레이어 사용 · " + pSnap(p) : MOBILE && player ? "휴대폰: 같은 플레이어에 다음 곡 불러옴" : "새 플레이어로 불러옴");
     if (p) { p.mute(); curVideo = song.videoId; }
-    else {
+    else if (MOBILE && player) {
+      // 휴대폰: 한 번 소리 허락을 받은 플레이어를 계속 씀 (새로 만들면 또 막힘)
+      p = player;
+      resetAd();
+      p.mute();
+      p.loadVideoById({ videoId: song.videoId, startSeconds: startOf(song) });
+      curVideo = song.videoId;
+    } else {
       p = await freshPlayer();
       if (!p || key !== lastKey) return;
       p.mute();
@@ -1641,7 +1756,6 @@ async function viewRoom(code) {
   let healBad = 0, heals = 0;
   function healCheck(st, song, state, t) {
     if (st.phase !== "playing" || st.wait || inAd || !song || !player || curVideo !== song.videoId) { healBad = 0; return; }
-    if (!$("#soundAlert").hidden) return;   // 이미 안내 중이면 사용자 동작을 기다림
     const el = now() - st.startAt, clip = clipMs();
     if (el < 1500 || el > clip - 800) { healBad = 0; return; }
     let exp = null;
@@ -1655,15 +1769,20 @@ async function viewRoom(code) {
     const wantVol = vol();
     const playing = state === YT.PlayerState.PLAYING;
     const why = !playing ? "멈춤(" + stName(state) + ")" : (wantVol > 0 && muted) ? "음소거" : (wantVol > 0 && pv === 0) ? "볼륨0" : Math.abs(t - exp) > 3 ? `위치 어긋남(${t.toFixed(1)}≠${exp.toFixed(1)})` : "";
-    if (!why) { healBad = 0; return; }
+    if (!why) {
+      if (heals && !$("#soundAlert").hidden) { $("#soundAlert").hidden = true; dbg("자동 복구 성공 · " + pSnap()); }
+      healBad = 0; return;
+    }
     if (state === YT.PlayerState.BUFFERING && healBad < 6) { healBad++; return; }   // 잠깐 버퍼링은 2초까지 기다림
     if (++healBad < 3) return;
     healBad = 0;
-    if (++heals > 3) {
-      if (why.startsWith("위치")) { if (heals === 4) dbg("위치 맞추기 포기 (소리는 나는 상태) · " + pSnap()); return; }   // 위치만 어긋난 건 소리는 나므로 안내 안 띄움
-      dbg("자동 복구 실패 → 소리 켜기 안내 · " + why + " · " + pSnap()); $("#soundAlert").hidden = false; return;
-    }
-    dbg(`자동 복구 ${heals}회 · 이유=${why} · ${pSnap()}`);
+    heals++;
+    // 위치만 어긋난 건 소리는 나는 상태라 3번까지만 맞춰 봄
+    if (why.startsWith("위치") && heals > 3) { if (heals === 4) dbg("위치 맞추기 포기 (소리는 나는 상태) · " + pSnap()); return; }
+    // 멈춤·음소거는 소리가 나올 때까지 약 1초마다 계속 다시 시도.
+    // 몇 번 해도 안 되면(브라우저가 막는 경우) 안내도 같이 띄움 → 화면을 한 번 누르면 바로 나옴
+    if (!why.startsWith("위치") && heals === (MOBILE ? 2 : 4)) { dbg("소리 켜기 안내 표시 (계속 재시도 중) · " + why); $("#soundAlert").hidden = false; }
+    if (heals <= 5 || heals % 10 === 0) dbg(`자동 복구 ${heals}회 · 이유=${why} · ${pSnap()}`);
     try {
       player.unMute(); player.setVolume(wantVol);
       if (!playing || Math.abs(t - exp) > 3) player.seekTo(exp, true);
@@ -1886,6 +2005,7 @@ async function viewRoom(code) {
   // 점수판: 줄을 매번 새로 그리지 않고 바뀐 부분만 고쳐서, 점수 슬롯 애니메이션과 테두리 빛이 끊기지 않게 함
   const rowEls = new Map();      // uid → <li>
   const shownScore = new Map();  // uid → 화면에 보이는 점수
+  const preShownPct = new Map(); // uid → 화면에 보이는 미리 불러오기 %
   let reorderT = null;
   function rollScore(el, from, to) {
     const step = to > from ? 1 : -1;
@@ -1912,7 +2032,7 @@ async function viewRoom(code) {
       let li = rowEls.get(id);
       if (!li) {
         li = document.createElement("li");
-        li.innerHTML = `<span class="rk"></span><span class="nm"></span><span class="sc"></span>`;
+        li.innerHTML = `<span class="rk"></span><span class="nmw"><span class="nm"></span><span class="pre-g" hidden title="다음 곡 미리 불러오기 (광고 미리 넘기기)"><b><i></i></b><span class="pct"><span class="pct-n">0</span>%</span></span></span><span class="sc"></span>`;
         rowEls.set(id, li);
         list.appendChild(li);
         shownScore.set(id, p.score || 0);
@@ -1922,6 +2042,19 @@ async function viewRoom(code) {
       const got = (st.phase === "playing" || st.phase === "reveal") && (solved[id] || st.winner === id);
       li.classList.toggle("off", !p.online);
       li.classList.toggle("got-it", !!got);
+      const lobby = !st.phase || st.phase === "lobby";
+      const pg = lobby && p.online && typeof p.pre === "string" && /^\d+\/\d+$/.test(p.pre) ? p.pre.split("/").map(Number) : null;
+      // 미리 불러오기 게이지: 백분율이 오를 때 점수처럼 숫자가 굴러 올라감
+      const g = li.querySelector(".pre-g");
+      if (pg && pg[1] > 0) {
+        const pct = Math.min(100, Math.round((pg[0] / pg[1]) * 100));
+        g.hidden = false;
+        g.classList.toggle("full", pct >= 100);
+        g.querySelector("i").style.width = pct + "%";
+        const n = g.querySelector(".pct-n"), was = preShownPct.get(id);
+        if (was === undefined) { n.textContent = pct; preShownPct.set(id, pct); }
+        else if (was !== pct) { preShownPct.set(id, pct); rollScore(n, was, pct); }
+      } else { g.hidden = true; preShownPct.delete(id); }
       li.querySelector(".nm").innerHTML = `${id === room.host ? "👑 " : ""}${esc(p.name)}${id === uid ? " <span class='hint'>(나)</span>" : ""}${solved[id] ? ` <span class='solved'>✅ +${solved[id].p}</span>` : ""}${skips[id] ? " <span class='hint'>⏭</span>" : ""}`;
       const sc = p.score || 0, before = shownScore.get(id);
       if (sc !== before) { shownScore.set(id, sc); rollScore(li.querySelector(".sc"), before, sc); }
@@ -2219,8 +2352,30 @@ async function viewRoom(code) {
   // 곡 순서 정하기 (섞어서 개수만큼)
   async function buildSongs(s) {
     const all = Object.entries((await get(ref(db, "playlistSongs/" + s.playlistId))).val() || {}).map(([sid, x]) => ({ ...x, sid }));
+    const want = Math.min(s.count || 10, all.length);
+    // API 검사에서 재생 불가로 걸린 곡은 빼고 뽑음
+    const pool = shuffle(all.filter(x => !isBadSong(x)));
+    // API 키가 있으면 뽑힌 곡을 한 번 더 실시간 검사해서, 걸린 곡은 다른 곡으로 바꿔 채움
+    let picked = pool.slice(0, want);
+    if (YT_API_KEY && picked.length) {
+      const good = [], badUpd = {};
+      let i = 0;
+      while (good.length < want && i < pool.length) {
+        const batch = pool.slice(i, i + Math.max(want - good.length + 5, 10));
+        i += batch.length;
+        const ck = await ytCheck(batch.map(x => x.videoId));
+        if (!ck) { good.push(...batch.slice(0, want - good.length)); break; }   // 검사 실패 → 그냥 씀
+        for (const x of batch) {
+          const c = ck.get(x.videoId);
+          if (c && !c.ok) { badUpd[`${x.sid}/chk`] = { why: c.why, videoId: x.videoId, at: Date.now() }; continue; }
+          if (good.length < want) good.push(c?.len && !x.len ? { ...x, len: c.len } : x);
+        }
+      }
+      picked = good;
+      if (Object.keys(badUpd).length) update(ref(db, "playlistSongs/" + s.playlistId), badUpd).catch(console.error);
+    }
     // rf: 랜덤 구간 위치 (곡 길이의 20~65% 지점). 모든 참가자가 같은 값을 써서 같은 구간을 들어요.
-    return shuffle(all).slice(0, Math.min(s.count || 10, all.length)).map(x => ({
+    return picked.map(x => ({
       sid: x.sid, videoId: x.videoId, start: x.start || 0, end: x.end || 0, gap: x.gap || 0, len: x.len || 0, rf: +(0.2 + Math.random() * 0.45).toFixed(3),
       answer: x.answer, alts: x.alts || "", orig: x.orig || "", artist: x.artist || ""
     }));
