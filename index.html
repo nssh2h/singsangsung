@@ -1721,6 +1721,7 @@ async function viewRoom(code) {
     $("#adNote").hidden = true;
     $("#adShield").hidden = true;
   }
+  const AD_GUARD = false;
   function watchAds() {
     clearInterval(adWatch);
     frozen = 0; lastT = null;
@@ -1746,9 +1747,12 @@ async function viewRoom(code) {
       }
       // 대기 중: 진짜 노래가 1초 가까이 흐르면 준비 완료
       if (st.phase === "playing" && st.wait) markReady();   // 퀴즈버블 방식: 미리 불러 둘 게 없어서 바로 준비 완료
-      if (!inAd && frozen >= 3) setAd(true);          // 약 1초 동안 시간이 안 흐르면 광고
-      else if (inAd && frozen === 0 && state === YT.PlayerState.PLAYING) setAd(false);
-      healCheck(st, song, state, t);
+      // 광고 확인용: 광고를 감지해도 소리를 끄지 않고 기록만 남김 (AD_GUARD를 true로 바꾸면 예전처럼 광고 중 음소거)
+      if (AD_GUARD) {
+        if (!inAd && frozen >= 3) setAd(true);          // 약 1초 동안 시간이 안 흐르면 광고
+        else if (inAd && frozen === 0 && state === YT.PlayerState.PLAYING) setAd(false);
+      } else if (frozen === 3) dbg("광고로 보이는 구간 (음소거 안 함) · " + pSnap());
+      if (AD_GUARD || frozen < 3) healCheck(st, song, state, t);   // 광고로 보이는 동안엔 위치 맞추기를 건드리지 않음
     }, 350);
   }
   onCleanup(() => clearInterval(adWatch));
@@ -1941,7 +1945,8 @@ async function viewRoom(code) {
   // 새 곡 상태: 모두가 광고·로딩을 끝낼 때까지 기다렸다가(wait) 동시에 3초 카운트다운 시작
   // startAt은 기다리는 동안 임시로 먼 미래 값(최대 대기 + 3초)을 넣어 둠
   const WAIT_MAX = 10000;
-  const newPlaying = i => ({ phase: "playing", index: i, startAt: now() + WAIT_MAX + 3000, playId: rid(), wait: true, waitSince: now() });
+  // 광고 대기 단계 없이 바로 3초 카운트다운 후 시작
+  const newPlaying = i => ({ phase: "playing", index: i, startAt: now() + 3000, playId: rid() });
 
   // 다음 단계 계산: 듣는 중 → 정답 공개 → 다음 곡(또는 결과)
   function nextState(s) {
