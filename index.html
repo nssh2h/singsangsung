@@ -1423,7 +1423,32 @@ async function viewRoom(code) {
   let inAd = false, adWatch = null, frozen = 0, lastT = null, dbgTick = 0;
   let ytSeq = 0;
   // 플레이어 칸 하나 만들기 (bg = 다음 곡을 미리 틀어 두는 숨은 플레이어)
-  async function makePlayer(onError, bg) {
+  // 퀴즈버블 방식 iframe: 주소에 영상·시작 시간(1초 이상)·자동 재생을 직접 넣어 만들고, 만든 뒤 조작 기능만 붙임
+  // muted=true면 소리 끈 채로 자동 재생 (미리 틀어 두기용)
+  function qbFrame(song, startSec, muted) {
+    const id = song.videoId;
+    const f = document.createElement("iframe");
+    f.id = "qb" + ++ytSeq;
+    const common = "autoplay=1&controls=1&autohide=1&iv_load_policy=3&showinfo=0&modestbranding=1&playsinline=1&disablekb=1&enablejsapi=1&rel=0&fs=0&cc_load_policy=0&playlist=" + id;
+    const st = Math.max(1, Math.floor(startSec || 0));   // 항상 1초 이상 = '중간부터 시작한 영상'
+    f.src = `https://www.youtube.com/embed/${id}?${common}&mute=${muted ? 1 : 0}&start=${st}&origin=${encodeURIComponent(location.origin)}`;
+    f.width = "1"; f.height = "1";
+    f.frameBorder = "0";
+    f.allow = "autoplay; encrypted-media; accelerometer; clipboard-write; gyroscope; picture-in-picture";
+    f.setAttribute("allowFullScreen", "false");
+    f.setAttribute("referrerpolicy", "origin");
+    $("#ytBox").prepend(f);
+    return f;
+  }
+  async function makePlayer(onError, bg, song, startSec) {
+    if (song) {
+      const f = qbFrame(song, startSec, true);
+      f.classList.toggle("bg", !!bg);
+      await window.__ytReady;
+      return new Promise(resolve => {
+        const p = new YT.Player(f.id, { events: { onReady: () => resolve(p), onError: e => onError && onError(e) } });
+      });
+    }
     const box = $("#ytBox");
     const div = document.createElement("div");
     div.id = "yt" + ++ytSeq;
@@ -1433,11 +1458,12 @@ async function viewRoom(code) {
     return p;
   }
   const MOBILE = matchMedia("(pointer:coarse)").matches;
-  async function freshPlayer() {
+  async function freshPlayer(song, startSec) {
     const gen = ++playerGen;
     try { player && player.destroy(); } catch {}
+    $("#ytBox").querySelectorAll("iframe:not(.bg)").forEach(x => x.remove());
     player = null;
-    const p = await makePlayer(e => onPlayErr(e), false);
+    const p = await makePlayer(e => onPlayErr(e), false, song, startSec);
     if (gen !== playerGen || my !== viewId) { try { p.destroy(); } catch {} return null; }
     player = p;
     resetAd();
@@ -1449,7 +1475,7 @@ async function viewRoom(code) {
   // 다음 곡 여러 개(PC 10곡, 휴대폰 5곡)를 숨은 플레이어에서 소리 없이 미리 틀어 둠
   // (휴대폰은 새 플레이어로 바뀔 때 소리가 막힐 수 있음 → 자동 복구가 계속 재시도하고, 안 되면 화면 한 번 누르면 나옴)
   // → 광고가 붙어 있으면 앞 곡들 듣는 동안 조용히 지나감. 광고가 끝나고 진짜 노래가 흐르기 시작하면 바로 멈춰 둠(기기 부담·영상 끝남 방지)
-  const PRE_N = 0;   // 퀴즈버블 방식: 곡마다 그 순간에 새 iframe을 만들어 바로 틀기 때문에 미리 틀어 두지 않음
+  const PRE_N = MOBILE ? 5 : 10;
   const pres = new Map();   // 곡 번호 → { videoId, p, err, done }
   let preBusy = false, preWatch = null;
   const killSlot = sl => { try { sl.p && sl.p.destroy(); } catch {} };
@@ -1469,11 +1495,10 @@ async function viewRoom(code) {
         const slot = { videoId: song.videoId, p: null, err: false, done: false, lastT: null };
         pres.set(i, slot);
         // 플레이어 준비를 기다리지 않고 바로 다음 곡도 시작 (0.2초 간격으로 거의 동시에 불러옴)
-        makePlayer(() => { slot.err = true; }, true).then(p => {
+        makePlayer(() => { slot.err = true; }, true, song, pickStart(song, room?.settings?.startMode || "auto", song.len || 0) + 1).then(p => {
           if (pres.get(i) !== slot || my !== viewId) { try { p.destroy(); } catch {} return; }
           slot.p = p;
           p.mute();
-          p.loadVideoById({ videoId: song.videoId, startSeconds: song.start || 0 });
         }).catch(e => { slot.err = true; console.error(e); });
         await new Promise(r => setTimeout(r, 200));
       }
@@ -1679,12 +1704,22 @@ async function viewRoom(code) {
   }
 
   async function schedulePlay(song, startAt, key) {
-    // 퀴즈버블 방식: 미리 불러 두지 않음 → 대기 중엔 이전 곡만 멈추고 바로 '준비 완료'
-    try { player && player.stopVideo(); } catch {}
+    if (now() - startAt >= clipMs()) { try { player.stopVideo(); } catch {} return; }
+    // 미리 틀어 둔 플레이어(퀴즈버블 방식 iframe)가 있으면 그걸 쓰고, 없으면 지금 소리 끈 채로 새로 만들어 대기 동안 광고를 흘려보냄
     curVideo = null;
-    if (room?.state?.wait) { markReady(); return; }
+    let p = adoptPre(song);
+    dbg(p ? "미리 틀어 둔 플레이어 사용 · " + pSnap(p) : "새 플레이어(퀴즈버블 방식)로 불러옴");
+    if (p) { p.mute(); curVideo = song.videoId; }
+    else {
+      p = await freshPlayer(song, pickStart(song, room?.settings?.startMode || "auto", song.len || 0) + 1);
+      if (!p || key !== lastKey) return;
+      p.mute();
+      curVideo = song.videoId;
+    }
     armStart();
+    prefetch(room.state.index + 1).catch(console.error);   // 이미 모두 준비된 상태(늦게 들어온 경우 등)면 바로 예약
   }
+
 
   function playReveal(song) {
     if (!player) { qbPlayer(song, pickStart(song, room?.settings?.startMode || "auto", song.len || 0)).then(p => { if (p) { try { p.unMute(); p.setVolume(vol()); p.playVideo(); } catch {} } }); return; }
@@ -1721,7 +1756,7 @@ async function viewRoom(code) {
     $("#adNote").hidden = true;
     $("#adShield").hidden = true;
   }
-  const AD_GUARD = false;
+  const AD_GUARD = false;   // 광고 감지해도 음소거·안내 안 함 (기록만)
   function watchAds() {
     clearInterval(adWatch);
     frozen = 0; lastT = null;
@@ -1746,7 +1781,14 @@ async function viewRoom(code) {
         dbg(`  · ${st.wait ? "대기" : st.phase === "reveal" ? "공개" : "듣기"} 경과=${exp} 광고=${inAd ? "O" : "X"} 다른영상=${otherVideo ? "O" : "X"} ${pSnap()}`);
       }
       // 대기 중: 진짜 노래가 1초 가까이 흐르면 준비 완료
-      if (st.phase === "playing" && st.wait) markReady();   // 퀴즈버블 방식: 미리 불러 둘 게 없어서 바로 준비 완료
+      if (st.phase === "playing" && st.wait) {
+        goodTicks = state === YT.PlayerState.PLAYING && advancing && !otherVideo && !inAd ? goodTicks + 1 : 0;
+        if (goodTicks >= 2) markReady();
+        // 브라우저가 멈춰 둔 경우(일시정지·불러오기만 된 상태)엔 다시 틀어 봄
+        else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.CUED || state === -1) { try { player.playVideo(); } catch {} }
+        // 미리 틀어 둔 영상이 이미 끝까지 갔거나, 광고 없이 본 영상이 멈춰 있으면 그것도 준비된 것
+        if (!otherVideo && !inAd && t > 0.5 && (state === YT.PlayerState.ENDED || state === YT.PlayerState.PAUSED)) markReady();
+      }
       // 광고 확인용: 광고를 감지해도 소리를 끄지 않고 기록만 남김 (AD_GUARD를 true로 바꾸면 예전처럼 광고 중 음소거)
       if (AD_GUARD) {
         if (!inAd && frozen >= 3) setAd(true);          // 약 1초 동안 시간이 안 흐르면 광고
@@ -1835,12 +1877,12 @@ async function viewRoom(code) {
   function armStart() {
     const st = room?.state || {};
     const song = room?.songs?.[st.index];
-    if (st.phase !== "playing" || st.wait || !song) return;
+    if (st.phase !== "playing" || st.wait || !song || curVideo !== song.videoId) return;
     const k = st.playId + "|" + st.startAt;
     if (armedFor === k) return;
     armedFor = k;
     clearTimeout(startT);
-    startT = setTimeout(() => startQB(song, st.startAt).catch(e => console.error(e)), Math.max(0, st.startAt - now()));
+    startT = setTimeout(() => playFrom(song, st.startAt), Math.max(0, st.startAt - now()));
   }
 
   let lastKey = null;
@@ -1945,7 +1987,7 @@ async function viewRoom(code) {
   // 새 곡 상태: 모두가 광고·로딩을 끝낼 때까지 기다렸다가(wait) 동시에 3초 카운트다운 시작
   // startAt은 기다리는 동안 임시로 먼 미래 값(최대 대기 + 3초)을 넣어 둠
   const WAIT_MAX = 10000;
-  // 광고 대기 단계 없이 바로 3초 카운트다운 후 시작
+  // 광고 대기 단계 없이 바로 3초 카운트다운 후 시작 (광고는 미리 틀어 두기로 흘려보냄)
   const newPlaying = i => ({ phase: "playing", index: i, startAt: now() + 3000, playId: rid() });
 
   // 다음 단계 계산: 듣는 중 → 정답 공개 → 다음 곡(또는 결과)
