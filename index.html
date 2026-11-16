@@ -170,6 +170,8 @@ details summary{cursor:pointer;font-weight:bold;color:var(--primary)}
 .feed .ans{color:var(--text);font-weight:600}
 .feed .ans-hidden{color:var(--muted);font-weight:normal}
 .feed .pts{color:var(--primary-hover)}
+.feed .ts{color:var(--muted);font-size:.75rem;font-weight:normal;margin-right:6px;font-variant-numeric:tabular-nums}
+.gclock{margin-left:6px;font-weight:normal;opacity:.8;font-variant-numeric:tabular-nums}
 /* 모션 */
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes popIn{0%{opacity:0;transform:scale(.88);filter:blur(6px)}60%{opacity:1;filter:blur(0)}100%{opacity:1;transform:none;filter:none}}
@@ -1996,7 +1998,7 @@ async function viewRoom(code) {
     if (s.phase === "playing") return { ...s, phase: "reveal", revealAt: now(), skips: null };
     if (s.phase === "reveal") {
       const i = s.index + 1;
-      return i < total ? newPlaying(i) : { phase: "end" };
+      return i < total ? newPlaying(i) : { phase: "end", endAt: now() };
     }
     return undefined;
   }
@@ -2110,6 +2112,18 @@ async function viewRoom(code) {
   }
   onCleanup(() => clearTimeout(reorderT));
 
+  // 채팅 줄마다 게임 시작 후 몇 분 몇 초에 올라왔는지 표시 (Firebase push 키 앞 8글자에 시각이 들어 있음)
+  const PUSH_CHARS = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
+  function keyTime(k) {
+    let t = 0;
+    for (const c of String(k).slice(0, 8)) { const v = PUSH_CHARS.indexOf(c); if (v < 0) return NaN; t = t * 64 + v; }
+    return t;
+  }
+  function feedStamp(k) {
+    const g = room.gameAt, t = keyTime(k);
+    if (!g || !Number.isFinite(t) || t < g - 5000 || t > g + 864e5) return "";
+    return `<span class="ts">${fmtTime((t - g) / 1000)}</span>`;
+  }
   let lastFeedKey = null;
   let shownFeed = new Set();
   function renderFeed() {
@@ -2121,7 +2135,7 @@ async function viewRoom(code) {
     const line = ([k, f], anim) => {
       const cls = (f.t === "ok" ? "ok" : f.t === "sys" ? "sys" : "") + (anim ? " fade-in" : "");
       const body = f.t === "ok" ? `🎉 ${esc(f.name)}님 정답!${f.a ? ` <span class="ans" data-i="${f.i ?? ""}" data-a="${esc(f.a)}"></span>` : ""}${f.p ? ` <span class="pts">+${f.p}점</span>` : ""}` : f.t === "sys" ? esc(f.text) : `<b>${esc(f.name)}</b> ${esc(f.text)}`;
-      return `<div class="${cls}" data-k="${esc(k)}">${body}</div>`;
+      return `<div class="${cls}" data-k="${esc(k)}">${feedStamp(k)}${body}</div>`;
     };
     if (!items.length) {
       el.innerHTML = `<div class="sys">${(room.settings?.mode || "speed") === "hint" ? "힌트 전에 맞히면 3점, 첫 번째 힌트 뒤 2점, 두 번째 힌트 뒤 1점이에요." : "정답을 입력하면 가장 먼저 맞힌 사람이 1점을 얻어요."}</div>`;
@@ -2158,6 +2172,11 @@ async function viewRoom(code) {
     c.classList.toggle("hide", hideCover);
     if (cover !== lastCover) { c.innerHTML = cover; lastCover = cover; }
     if (status !== lastStatus) { $("#status").innerHTML = status; lastStatus = status; }
+    const gc = $("#gClock"), st = room.state || {};
+    if (gc && room.gameAt) {
+      const txt = (st.phase === "end" ? "⏱ 총 " : "⏱ ") + fmtTime((((st.phase === "end" && st.endAt) || now()) - room.gameAt) / 1000);
+      if (gc.textContent !== txt) gc.textContent = txt;
+    }
   }
 
   const MODE_LABEL = { auto: "정한 곳 (없으면 랜덤)", start: "처음부터", random: "랜덤 구간" };
@@ -2179,7 +2198,7 @@ async function viewRoom(code) {
       );
     } else if (st.phase === "playing" && song) {
       const t = now(), clip = clipMs(), el = t - st.startAt;
-      const step = `<span class="step">${st.index + 1} / ${total}</span>`;
+      const step = `<span class="step">${st.index + 1} / ${total}<span class="gclock" id="gClock"></span></span>`;
       if (st.wait) {
         const wait = notReady(st);
         const left = Math.max(0, Math.ceil(((st.waitSince || 0) + WAIT_MAX - t) / 1000));
@@ -2229,7 +2248,7 @@ async function viewRoom(code) {
       const last = st.index + 1 >= total;
       setStage("",
         `<div class="reveal-anim">
-         <span class="step">${st.index + 1} / ${total} 정답</span>
+         <span class="step">${st.index + 1} / ${total} 정답<span class="gclock" id="gClock"></span></span>
          <div class="answer">${esc(song.answer)}</div>
          ${sub ? `<div class="orig">${esc(sub)}</div>` : ""}
          ${winLine(st)}
@@ -2241,7 +2260,7 @@ async function viewRoom(code) {
       const ranks = sortedPlayers();
       const top = ranks[0]?.[1];
       setStage(`<div class="big">🏆</div><div class="cv-sub">${top ? esc(top.name) + "님 우승!" : "게임 끝!"}</div>`,
-        `<div class="reveal-anim"><span class="step">최종 결과</span><div style="margin-top:6px">${ranks.map(([, p], i) =>
+        `<div class="reveal-anim"><span class="step">최종 결과<span class="gclock" id="gClock"></span></span><div style="margin-top:6px">${ranks.map(([, p], i) =>
           `<div>${["🥇", "🥈", "🥉"][i] || i + 1 + "."} ${esc(p.name)} · <b>${p.score || 0}점</b></div>`).join("")}</div></div>`);
     }
   }
@@ -2437,7 +2456,7 @@ async function viewRoom(code) {
     const d = room.draft;
     const songs = d?.key === draftKey() && d.songs?.length ? d.songs : await buildSongs(s);
     if (!songs.length) return toast("이 문제에는 곡이 없어요");
-    const updates = { songs, draft: null, feed: null, ready: null, state: newPlaying(0) };
+    const updates = { songs, draft: null, feed: null, ready: null, gameAt: now(), state: newPlaying(0) };
     for (const id of Object.keys(room.players || {})) updates[`players/${id}/score`] = 0;
     await update(roomRef, updates);
     await push(ref(db, base + "/feed"), { t: "sys", text: `게임 시작! 총 ${songs.length}곡이에요` });
